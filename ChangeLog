@@ -1,0 +1,9 @@
+2007-12-21  Alex Graveley  <alex@beatniksoftware.com>
+
+	* er.js: Add some more doco.
+	(ErProc._threadmain): Remove the generator handling, which is not
+	needed if we always yield the result of fun(args).
+	(ErProc._receive): Sleep(100) after iterating the queue, instead
+	of before. Sleep(0), after reading each message.
+	
+	* Add ChangeLog.

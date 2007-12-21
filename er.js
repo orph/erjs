@@ -114,14 +114,14 @@ var Er = {
     *      { MyKey: "abc" },    // ... Strings
     *      { MyKey: obj },      // ... References
     *      { MyKey: TypeName }, // Instance of a type 
-    *      { MyKey: { ... } }   // Nested matching
-    *      { MyKey: _ }         // Any value
+    *      { MyKey: { ... } },  // Nested matching
+    *      { MyKey: _ },        // Any value
     *         // Handler function follows patterns
     *      function(msg) { alert(msg.MyKey); },
     *         // More patterns/handlers
     *      { A: ..., B: ... },  // Multiple keys
-    *      { _: ... }           // Any keyname
-    *      { _: _ }             // Any key, any value
+    *      { _: ... },          // Any keyname
+    *      { _: _ },            // Any key, any value
     *      function(msg) { ... });
     */
    receive: function() {
@@ -156,6 +156,7 @@ var Er = {
          }
       }, null, null);
    },
+
    // Create and run a new ErProc process which will call fun(args),
    // possibly creating an initial link to link_pid.
    _addproc: function(fun, args, link_pid) {
@@ -171,6 +172,7 @@ var Er = {
       newproc._start();
       return newproc;
    },
+
    // Cleanup after pid exits, sending exit messages to linked
    // processes.
    _removeproc: function(pid, exitreason) {
@@ -194,6 +196,7 @@ var Er = {
          }
       }
    },
+
    // Get the list of pids for a given registered name.  Passing a
    // pid or ErProc will do the obvious.
    _pidof: function(id) {
@@ -210,6 +213,7 @@ var Er = {
          return Er._names[id];
       }
    },
+
    // Link pid to dest_pid, so that when pid exits, dest_pid will
    // recieve it's exit signal.
    _linkpids: function(pid, dest_pid) {
@@ -240,7 +244,10 @@ ErProc.prototype = {
     * Callbacks from Er on the current ErProc...
     */
 
+   // Start running fun(args), and yield the result.  Catch exceptions and use
+   // as the exitreason sent to Er._removeproc.
    _threadmain: function(fun, args) {
+      // Wait until the document is loaded.
       while (!document.body) {
          yield Er.sleep(100);
       }
@@ -248,12 +255,6 @@ ErProc.prototype = {
       var retval;
       try {
          retval = (yield fun(args));
-         if (retval != null &&
-             typeof(retval) == "object" &&
-             typeof(retval.next) == "function" &&
-             typeof(retval.send) == "function") {
-            retval = (yield retval);
-         }
       } catch(e if e == StopIteration) {
          retval = undefined;
       } catch(e) {
@@ -263,9 +264,13 @@ ErProc.prototype = {
       Er._removeproc(this._pid, retval);
       yield retval;
    },
+
+   // Just throw the reason for the process _threadmain to catch.
    _exit: function(reason) {
       throw reason;
    },
+
+   // See Er.receive description for what this is supposed to do.
    _match: function(pattern, value) {
       if (pattern == _ ||
           pattern == { _: _ } ||
@@ -286,6 +291,9 @@ ErProc.prototype = {
 
       return true;
    },
+
+   // Collect patterns/handlers and read messages off the queue until a match is
+   // found.  Call the pattern's handler and yield the result.
    _receive: function(args) {
       var patterns = [];
 
@@ -324,8 +332,6 @@ ErProc.prototype = {
 
    loop:
       while (!done) {
-         yield Er.sleep(100);
-
          while ((msg = this._queue.shift())) {
             for (var i = 0; i < patterns.length; i++) {
                if (this._match(patterns[i][0], msg)) {
@@ -334,20 +340,27 @@ ErProc.prototype = {
                   break loop;
                }
             }
-            // Unhandled link exit, pass along
-            if (msg.Signal == Er.Exit && 
-                msg.Reason != Er.Normal) {
+
+            // Unhandled link exit. Exit this process too.
+            if (msg.Signal == Er.Exit && msg.Reason != Er.Normal) {
                Er.exit(msg.Reason);
             }
-            throw("Er.receive: No patterns match msg: " + msg.toString());
+
+            // Don't starve others if a lot of messages queued.
+            yield Er.sleep(0);
          }
+
+         // Give the queue a chance to fill again
+         yield Er.sleep(100);
       }
 
       yield retmsg;
    },
+
    _send: function(msg) {
       this._queue.push(msg || {});
    },
+
    _sleep: function(millis) {
       setTimeout((yield this._CONTINUATION), millis);
       yield this._SUSPEND;
