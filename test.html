@@ -1,0 +1,153 @@
+
+
+<html>
+<head>
+<title>Test erjs.js</title>
+<script src="er.js" type="application/javascript;version=1.7"></script>
+</head>
+<body>
+
+Starting Er.js Concurrency Tests...
+
+<script type="application/javascript;version=1.7">
+
+
+function log(div, txt) { div.innerHTML += " " + txt; };
+
+
+// Send a { Ping: <pid> } to id (pid or registered name)
+// Waits for a { Pong: _ } before quitting.
+function ping_me(id) {
+   var div = document.createElement("div");
+   document.body.appendChild(div);
+   
+   log(div, "Ping(" + Er.pid() + "): ");
+
+   if (!id) {
+      log(div, "Invalid id '" + id + "'. Quitting.");
+      Er.exit();
+   }
+
+   log(div, "Sending to '" + id + "'.");
+   Er.send(id, { Ping: Er.pid() });
+
+   log(div, "Linking to '" + id + "'.");
+   Er.link(id);
+   
+   log(div, "Awaiting '" + id + "' exit...");
+   yield Er.receive({ Pong: _ },
+                    function(msg) {
+                       log(div, "Pong from (" + msg.Pong + ").");
+                       return;
+                    });
+   
+   log(div, "Quiting!");
+};
+
+
+// Register as "Foo", spawn a bunch of ping_mes, and log incoming
+// messages (forever).
+var foo = Er.spawn(function() {
+   Er.register("Foo", Er.pid());
+
+   var div = document.createElement("div");
+   document.body.appendChild(div);
+
+   Er.spawn(ping_me, "Foo");
+   Er.spawn(ping_me, Er.pid());
+   Er.spawn(ping_me, foo); // Fail: foo isn't defined yet
+
+   while (true) {
+      log(div, "<br>Receiving(" + Er.pid() + ")... ");
+
+      yield Er.receive(
+         { Hello: _, From: _ },
+         function(msg) {
+            log(div, "Hello=" + msg.Hello + ". From: " + 
+               msg.From + ".");
+
+            Er.link(msg.From);
+            Er.spawn_link(ping_me, Er.pid());
+         },
+
+         { SmallTalk: _ },
+         function(msg) {
+            log(div, "SmallTalk=" + msg.SmallTalk);
+         },
+
+         { Goodbye: _, Digits: String },
+         function(msg) {
+            log(div, "Goodbye. Digits=" + msg.Digits);
+         },
+
+         { Goodbye: _ },
+         function(msg) {
+            log(div, "Goodbye. No phone number :-(");
+         },
+
+         { Ping: _ },
+         function(msg) {
+            log(div, "Ping from (" + msg.Ping + ").");
+            Er.send(msg.Ping, { Pong: Er.pid() });
+         },
+
+         { Signal: Er.Exit, From: _, Reason: _ },
+         function(msg) {
+            log(div, "Link exit. From=" + msg.From + ".\n" +
+               "Reason: " + msg.Reason);
+         });
+   }
+
+   log(div, "Quitting!");
+});
+
+
+// Send spaced out messages to foo, and exit abnormally
+Er.spawn(function() {
+   Er.send(foo, { Hello: new Date(), From: Er.pid() });
+   yield Er.sleep(2000);
+
+   Er.send(foo, { SmallTalk: "How about that local sports team!" });
+   yield Er.sleep(2000);
+
+   Er.send(foo, { Goodbye: false });
+   Er.exit("Sorry, in a hurry!");
+});
+
+
+// Send messages to "Foo"/foo from the main process
+Er.send("Foo", { Hello: new Date(), From: Er.pid() });
+Er.send("Foo", { SmallTalk: "Nice weather today!" });
+Er.send(foo, { Goodbye: true, Digits: "(415) 555-5555" });
+
+
+// Sleep forever
+Er.spawn(function() {
+   var div = document.createElement("div");
+   document.body.appendChild(div);
+
+   log(div, "Sleeper(" + Er.pid() + "): ");
+
+   while (true) {
+      log(div, "Zzz...");
+      yield Er.sleep(500);
+   }
+});
+
+
+/* Future work... */
+/*
+rpc = Er.spawn("http://www.beatniksf.com/echo");
+rpc.send({ Echo: "This is the echo payload" });
+
+Er.receive({ EchoResponse: String },
+           function (msg) {
+              alert("Got Echo response: " + msg.EchoResponse);
+           });
+*/
+
+
+</script>
+
+</body>
+</html>
