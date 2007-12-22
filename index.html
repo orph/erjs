@@ -1,0 +1,128 @@
+
+<html>
+<head>
+<title>Er.js: Erlang-in-JavaScript</title>
+</head>
+
+<body>
+
+<div align="center">
+
+<h1>Er.js: Erlang-in-JavaScript</h1>
+<h2>Erlang-style concurrency with JavaScript 1.7</h2>
+
+<h3>
+<a href="http://www.beatniksoftware.com/erjs/svn/er.js">Download Er.js</a> |
+<a href="http://www.beatniksoftware.com/erjs/test.html">See it in action</a>
+</h3>
+
+</div>
+
+<hr/>
+
+<p>Er.js piggybacks on Neil Mix&#8217;s <a
+href="http://www.neilmix.com/2007/02/07/threading-in-javascript-17/">Thread.js</a>
+which fakes threading in JavaScript 1.7 using coroutines and nested generator
+continuations.  The goal is to replicate Erlang&#8217;s concurrent lockless
+process model and message-passing APIs in JavaScript.</p>
+<p>Running a JavaScript function in the background is easy with Er.js:</p>
+
+<h3>Running Concurrently</h3>
+
+<pre><big><strong>Er.spawn</strong>(myBackgroundFunction);</big></pre>
+
+<p><code>Er.spawn</code> starts a new Er.js process running
+<code>myBackgroundFunction</code>, and returns its process id.  </p>
+
+<p>Because processes are really coroutines, you have to call <code>yield</code>
+before any function which might block.  Calling <code>yield</code> will create a
+continuation trampoline that can be rerun by Er.js when it&#8217;s time for the
+process to continue executing.  For example:</p>
+
+<pre><big>function myBackgroundFunction() {
+   // Wait for 4 seconds
+   <strong>yield Er.sleep</strong>(4000);
+   // Do other things&#8230;
+}</big></pre>
+
+<h3>Sending Messages</h3>
+
+<p>In Erlang and Er.js, each process has a built-in message queue that other
+processes use to send it messages.  Posting to the message queue never blocks
+the caller, and the destination process for the message can read them off the
+queue whenever it wants.  Messages are just regular associative arrays, similar
+to hashtables, which are easy to create in JavaScript.  For example:</p>
+
+<pre><big><strong>Er.send</strong>(myPid, { Hello: new Date(), From: Er.pid() });</big></pre>
+
+<p>Here, <code>myPid</code> is assumed to be the process id from some former
+call to <code>Er.spawn</code>.  This call sends a message with the keys
+&#8220;Hello&#8221; and &#8220;From&#8221;.  Hello is a Date object with the
+current date, and From is the process id of the current process, which can
+always be fetched with <code>Er.pid()</code>.  Passing the current pid means the
+<code>myPid</code> process can send us messages in return, since we&#8217;ve
+told it who we are.</p>
+
+<h3>Receiving & Pattern Matching</h3>
+
+<p>When <code>myBackgroundFunction</code> wants to read off its message queue,
+it calls the <code>Er.receive</code> function, telling it the kind of message
+it&#8217;s interested in, and a function to call when such a message is
+received.  Interest in a message is expressed using a message pattern which,
+just like the messages themselves, is a simple hash table.</p>
+
+<pre><big><strong>yield Er.receive</strong>({ Hello: Date, From: _ },     // pattern
+                 function(msg) {               // handler
+                    log(&#8221;Hello=&#8221; + msg.Hello);
+                    log(&#8221;From=&#8221; + msg.From);
+                 });</big></pre>
+
+<p>This matches any message in the current process&#8217;s queue which has a
+<code>Hello</code> key with a <code>Date</code> object as the value, and with a
+<code>From</code> key with any value.  Explicit value matching for number and
+string literals and object references is also possible.  The &#8220;_&#8221; for
+the <code>From</code> key means that any value is accepted.  There are a few
+other matching rules as well that make this a very powerful but simple message
+dispatching mechanism.</p>
+
+<p>If a message in the process queue matches a pattern passed to
+<code>Er.receive</code>, it is passed to the handler function found in the
+argument list following the pattern.  The handler can look up the key values it
+needs in order to act on the message.  It can also send messages to other
+processes, spawn new processes, receive queued messages or perform other work.
+</p>
+<p>Because the <code>Er.receive</code> call doesn&#8217;t return until a message
+matching one of patterns is received and handled, we put a yield in front of the
+call to avoid blocking.</p>
+
+<h3>Linked Processes</h3>
+
+<p>When a process finishes or exits, it automatically sends a message to any
+processes which link to it.  Linking is done by passing a pid to
+<code>Er.link</code>.  The sent message is of the form:</p>
+
+<pre><big>{ Signal: Er.Exit, From: exiting_pid, Reason: reason }</big></pre>
+
+<p>The Reason value comes either from the exiting process calling
+<code>Er.exit(reason)</code>, or just throwing the reason as an exception.  If
+the linking process does not handle this message, it will exit itself, sending
+exit messages to its own linked processes.  This allows for simple process
+chaining and failure handling.</p>
+
+<h3>Process Multicast</h3>
+
+<p>Er.js Processes can also register to receive messages sent to a given name string,
+using <code>Er.register(name)</code>.  Registered names can be passed as the
+first argument to <code>Er.send</code>.  Multiple processes can register for the
+same name, and they will all receive a message sent to that name, allowing for
+simple multi-casting.</p>
+
+<hr/>
+
+<p align="center">
+Er.js is from <a href="mailto:alex@beatniksoftware.com">Alex
+Graveley</a> (<a href="http://beatniksoftware.com">www</a>).
+</p>
+
+</body>
+</html>

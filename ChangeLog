@@ -1,5 +1,10 @@
 2007-12-21  Alex Graveley  <alex@beatniksoftware.com>
 
+	* index.html: Add this.  Just copy and paste the
+	beatniksoftware.com blog post for now, with some headers added.
+
+2007-12-21  Alex Graveley  <alex@beatniksoftware.com>
+
 	* er.js: Add some more doco.
 	(ErProc._threadmain): Remove the generator handling, which is not
 	needed if we always yield the result of fun(args).
