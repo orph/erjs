@@ -2,6 +2,9 @@
 <html>
 <head>
 <title>Er.js: Erlang-in-JavaScript</title>
+<style>
+DIV { margin-left: 15%; margin-right: 15% }
+</style>
 </head>
 
 <body>
@@ -20,14 +23,19 @@
 
 <hr/>
 
+<div>
+
+<h3>About</h3>
+
 <p>Er.js piggybacks on Neil Mix&#8217;s <a
 href="http://www.neilmix.com/2007/02/07/threading-in-javascript-17/">Thread.js</a>
 which fakes threading in JavaScript 1.7 using coroutines and nested generator
 continuations.  The goal is to replicate Erlang&#8217;s concurrent lockless
 process model and message-passing APIs in JavaScript.</p>
-<p>Running a JavaScript function in the background is easy with Er.js:</p>
 
 <h3>Running Concurrently</h3>
+
+<p>Running a JavaScript function in the background is easy with Er.js:</p>
 
 <pre><big><strong>Er.spawn</strong>(myBackgroundFunction);</big></pre>
 
@@ -57,11 +65,12 @@ to hashtables, which are easy to create in JavaScript.  For example:</p>
 
 <p>Here, <code>myPid</code> is assumed to be the process id from some former
 call to <code>Er.spawn</code>.  This call sends a message with the keys
-&#8220;Hello&#8221; and &#8220;From&#8221;.  Hello is a Date object with the
-current date, and From is the process id of the current process, which can
-always be fetched with <code>Er.pid()</code>.  Passing the current pid means the
-<code>myPid</code> process can send us messages in return, since we&#8217;ve
-told it who we are.</p>
+&#8220;Hello&#8221; and &#8220;From&#8221;.  <code>Hello</code> is a
+<code>Date</code> object with the current date, and <code>From</code> is the
+process id of the current process, which can always be fetched with
+<code>Er.pid()</code>.  Passing the current pid means the <code>myPid</code>
+process can send us messages in return, since we&#8217;ve told it who we
+are.</p>
 
 <h3>Receiving & Pattern Matching</h3>
 
@@ -91,9 +100,9 @@ argument list following the pattern.  The handler can look up the key values it
 needs in order to act on the message.  It can also send messages to other
 processes, spawn new processes, receive queued messages or perform other work.
 </p>
-<p>Because the <code>Er.receive</code> call doesn&#8217;t return until a message
-matching one of patterns is received and handled, we put a yield in front of the
-call to avoid blocking.</p>
+<p>Because the <code>Er.receive</code> call doesn&#8217;t finish until a message
+matching one of patterns is received and handled, we put a <code>yield</code> in
+front of the call to avoid blocking other processes.</p>
 
 <h3>Linked Processes</h3>
 
@@ -103,11 +112,11 @@ processes which link to it.  Linking is done by passing a pid to
 
 <pre><big>{ Signal: Er.Exit, From: exiting_pid, Reason: reason }</big></pre>
 
-<p>The Reason value comes either from the exiting process calling
-<code>Er.exit(reason)</code>, or just throwing the reason as an exception.  If
-the linking process does not handle this message, it will exit itself, sending
-exit messages to its own linked processes.  This allows for simple process
-chaining and failure handling.</p>
+<p>The <code>Reason</code> value comes either from the exiting process calling
+<code>Er.exit(reason)</code>, or just <code>throw</code>'ing the reason as an
+exception.  If the linking process does not handle this message, it will exit
+itself, sending exit messages to its own linked processes.  This allows for
+simple process chaining and failure handling.</p>
 
 <h3>Message Multicast</h3>
 
@@ -117,12 +126,53 @@ first argument to <code>Er.send</code>.  Multiple processes can register for the
 same name, and they will all receive a message sent to that name, allowing for
 simple multi-casting.</p>
 
+<h3>Future Work: AJAX & Threading</h3>
+
+<p>Going forward, Er.js will wrap certain long-running asynchronous JavaScript
+calls in synchronous yielding wrappers so that processes can avoid convoluted
+asynchronous code.</p>
+
+<p>XmlHttpRequest, AJAX and JSON should integrate nicely with the process and
+message-passing model.  This will allow processes to avoid asynchronous
+callbacks, instead using <code>Er.send</code> and <code>Er.receive</code> as
+with other messages.  For example:</p>
+
+<pre><big>rpc = <strong>Er.spawn</strong>("http://www.beatniksoftware.com/echo");
+<strong>Er.send</strong>(rpc, { Echo: "This is the echo payload" });
+
+<strong>yield Er.receive</strong>({ EchoResponse: String },
+                 function (msg) {
+                    alert("Got Echo response: " + msg.EchoResponse);
+                 });
+</big></pre>
+
+<p>For DOM Events, this might be embodied with the following, where
+<code>"button1"</code> below could alternately be an element id, DOM node, CSS
+selector, etc:</p>
+
+<pre><big><strong>Er.link_event</strong>("button1", "click");
+
+<strong>yield Er.receive</strong>({ Signal: Er.Event, From: _, Event: "click" },
+                 function (msg) {
+                    alert("Got Click event from: " + msg.From);
+                 });
+</big></pre>
+
+<p>It would also be interesting to explore the use of native threads for running
+processes, leveraging e.g. Google Gears' <a
+href="http://code.google.com/apis/gears/api_workerpool.html">WorkerPools</a> if
+available on the client.</p>
+
+</div>
+
 <hr/>
 
-<p align="center">
+<div align="center">
+<p>
 Er.js is from <a href="mailto:alex@beatniksoftware.com">Alex
 Graveley</a> (<a href="http://beatniksoftware.com">www</a>).
 </p>
+</div>
 
 </body>
 </html>

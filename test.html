@@ -138,16 +138,23 @@ Er.spawn(function() {
 /* Future work... */
 /*
 rpc = Er.spawn("http://www.beatniksf.com/echo");
-rpc.send({ Echo: "This is the echo payload" });
+yield Er.send(rpc, { Echo: "This is the echo payload" });
 
-Er.receive({ EchoResponse: String },
-           function (msg) {
-              alert("Got Echo response: " + msg.EchoResponse);
-           });
+yield Er.receive({ EchoResponse: String },
+                 function (msg) {
+                    alert("Got Echo response: " + msg.EchoResponse);
+                 });
+
+Er.link_event("button1", "click");
+
+yield Er.receive({ Signal: Er.Event, From: _, Event: "click" },
+                 function (msg) {
+                    alert("Got Click event from: " + msg.From);
+                 });
 */
 
-
 </script>
+
 
 </body>
 </html>
