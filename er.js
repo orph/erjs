@@ -34,19 +34,17 @@ var Er = {
    // Start a function in a new process, optionally passing
    // arguments.  The function can be a generator.  If no arguments
    // are specified, [] is passed.  Usage:
-   //   <pid> = Er.spawn(function () { ... }, args)
-   spawn: function() {
-      var fun = arguments[0];
-      var args = (arguments.length > 1) ? arguments[1] : [];
+   //   <pid> = Er.spawn(function () { ... } [, args...])
+   spawn: function(fun) {
+      var args = Array.prototype.slice.call(arguments, 1);
       return Er._addproc(fun, args, null)._pid;
    },
 
    // Same as Er.spawn, but link the current process to the spawned 
    // process' exit signal.  Usage:
-   //   <pid> = Er.spawn_link(function () { ... }, args)
-   spawn_link: function() {
-      var fun = arguments[0];
-      var args = (arguments.length > 1) ? arguments[1] : [];
+   //   <pid> = Er.spawn_link(function () { ... } [, args...])
+   spawn_link: function(fun) {
+      var args = Array.prototype.slice.call(arguments, 1);
       return Er._addproc(fun, args, Er._current._pid)._pid;
    },
 
@@ -178,7 +176,7 @@ var Er = {
    _removeproc: function(pid, exitreason) {
       delete Er._pids[pid];
 
-      for (name in Er._names) {
+      for (var name in Er._names) {
          if (pid in Er._names[name])
             delete Er._names[name][pid];
       }
@@ -254,7 +252,7 @@ ErProc.prototype = {
 
       var retval;
       try {
-         retval = (yield fun(args));
+         retval = (yield fun.apply({}, args));
       } catch(e if e == StopIteration) {
          retval = undefined;
       } catch(e) {
@@ -262,7 +260,6 @@ ErProc.prototype = {
       }
 
       Er._removeproc(this._pid, retval);
-      yield retval;
    },
 
    // Just throw the reason for the process _threadmain to catch.
@@ -270,10 +267,13 @@ ErProc.prototype = {
       throw reason;
    },
 
-   // See Er.receive description for what this is supposed to do.
+   // See Er.receive description for what this is supposed to do.  Hashtable
+   // match requires matching all submembers, unless a '_' key is specified.
+   // Arrays match any one submember matching.
    _match: function(pattern, value) {
       if (pattern == _ ||
-          pattern == { _: _ } ||
+          pattern == value == null ||
+          pattern == value == undefined ||
           pattern == value ||
           pattern == value.constructor)
          return true;
@@ -281,12 +281,23 @@ ErProc.prototype = {
       if (!value instanceof Object)
          return false;
 
-      var match_any = "_" in pattern;
-      for (var name in pattern) {
-         if (!match_any && !value.hasOwnProperty(name))
+      if (pattern instanceof Array) {
+         for (var idx in pattern) {
+            for (var vidx in value) {
+               if (this._match(pattern[idx], value[vidx]))
+                  return true;
+            }
             return false;
-         if (!this._match(pattern[name], value[name]))
-            return false;
+         }
+         return value.length == 0;
+      } else {
+         var match_any = "_" in pattern;
+         for (var name in pattern) {
+            if (!match_any && !value.hasOwnProperty(name))
+               return false;
+            if (!this._match(pattern[name], value[name]))
+               return false;
+         }
       }
 
       return true;
@@ -329,9 +340,11 @@ ErProc.prototype = {
 
       var done = false;
       var retmsg = null;
+      var pending = [];
 
    loop:
       while (!done) {
+         var msg;
          while ((msg = this._queue.shift())) {
             for (var i = 0; i < patterns.length; i++) {
                if (this._match(patterns[i][0], msg)) {
@@ -346,14 +359,14 @@ ErProc.prototype = {
                Er.exit(msg.Reason);
             }
 
-            // Don't starve others if a lot of messages queued.
-            yield Er.sleep(0);
+            pending.push(msg);
          }
 
-         // Give the queue a chance to fill again
+         // Give the queue a chance to fill again / avoid starving others
          yield Er.sleep(100);
       }
 
+      this._queue = pending.concat(this._queue);
       yield retmsg;
    },
 
@@ -429,14 +442,13 @@ ErProc.prototype = {
          // Always set the current Er process before invoking callbacks.
          // Always revert it back once we return.
          var lastproc = Er._current;
+         Er._current = this;
          try {
-            Er._current = this;
             retval = this._stack[this._stack.length-1][method](arg);
             isException = false;
          } catch(e if e == StopIteration) {
             // since a normal return results in StopIteration, we'll
             // just treat this as a return
-            retval = undefined;
             isException = false;
          } catch(e) {
             retval = e;
@@ -452,3 +464,130 @@ ErProc.prototype = {
 // Start the main process.
 Er._init();
 
+
+Er.AjaxOptions = function() { };
+Er.AjaxOptions.prototype = {
+   Username: null,
+   Password: null,
+   Method: null,         // Override POST with data, GET without
+   Request: {
+      Headers: { },      // Header: value to send
+      ContentType: null, // Override "application/x-www-form-urlencoded"
+   },
+   Response: {
+      Headers: [],       // List of header names to return
+      ContentType: null, // Override server's Content-Type
+   },
+   Timeout: 0,
+   UseCache: false,
+   IfModified: true,
+   NotifyHeaders: false,
+   NotifyPartial: false
+};
+
+
+Er.Ajax = {
+   DefaultOptions: new Er.AjaxOptions(),
+
+   _lastModified: {}, // url: date-string
+
+   get: function(url, options) {
+      var pid = Er.Ajax.spawn(url, null, options);
+      yield Er.receive({ From: pid, Success: _, _:_ },
+                       function(msg) { return msg; });
+   },
+
+   post: function(url, data, options) {
+      var pid = Er.Ajax.spawn(url, data, options);
+      yield Er.receive({ From: pid, Success: _, _:_ },
+                       function(msg) { return msg; });
+   },
+
+   spawn: function(url, data, options) {
+      return Er.spawn(function (url, data, options, caller) {
+         // Create the request object; Microsoft failed to properly implement the
+         // XMLHttpRequest in IE7, so we use the ActiveXObject when it is available
+         var xml = new XMLHttpRequest();
+
+         // Open the socket (async)
+         xml.open(options.Method || (data ? "POST" : "GET"), url, true, 
+                  options.Username, options.Password);
+
+         var _pid = Er.pid();
+         xml.onreadystatechange = function() {
+            if (!xml || (xml.readyState == 2 && !options.NotifyHeaders) ||
+                (xml.readyState == 3 && !options.NotifyPartial) ||
+                xml.readyState != 4)
+               return;
+
+            var msg = { From: _pid,
+                        Url: url,
+                        Status: xml.status,
+                        StatusText: xml.statusText,
+                        Text: xml.responseText };
+
+            if (options.Response.Headers.length) {
+               msg.Headers = {};
+               for (header in options.Response.Headers)
+                  msg.Headers[header] = xml.getResponseHeader(header);
+            }
+
+            // Update last-modified cache
+            var lm = Er.Ajax._lastModified[url];
+            try { lm = xml.getResponseHeader("Last-Modified") } catch (e) {}
+            if (options.IfModified && lm)
+               Er.Ajax._lastModified[url] = lm;
+
+            if (xml.readyState == 4) {
+               // Get the finished xml document
+               var ct = options.Response.ContentType;
+               try { ct = xml.getResponseHeader("content-type") } catch (e) {}
+               if (ct && ct.indexOf("xml") >= 0)
+                  msg.XmlDoc = xml.responseXML;
+
+               msg.Success = (!xml.status && location.protocol == "file:") ||
+                  (xml.status >= 200 && xml.status < 300 ) ||
+                  xml.status == 304;
+
+               Er.send(_pid, { Done: true });
+               xml = null;
+            }
+
+            Er.send(caller, msg);
+         };
+
+         // Set the If-Modified-Since header, if ifModified mode.
+         if (options.IfModified)
+            xml.setRequestHeader("If-Modified-Since",
+               Er.Ajax._lastModified[url] || "Thu, 01 Jan 1970 00:00:00 GMT" );
+
+         // Set header so the called script knows that it's an XMLHttpRequest
+         xml.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+
+         // Set user-specified headers
+         for (header in options.Request.Headers)
+            xml.setRequestHeader(header, options.Request.Headers[header]);
+
+         // Set the correct header, if data is being sent
+         if (data)
+            xml.setRequestHeader("Content-Type", 
+               options.Request.ContentType || "application/x-www-form-urlencoded");
+
+         // XXX: format data
+         xml.send(data);
+
+         yield Er.receive({ Done: true },
+                          function(msg) {
+                             Er.exit();
+                          },
+                          { Cancel: true },
+                          function(msg) {
+                             if (xml) {
+                                xml.abort();
+                                xml = null;
+                             }
+                             Er.exit(msg);
+                          });
+      }, url, data, options || Er.Ajax.DefaultOptions, Er.pid());
+   },
+};

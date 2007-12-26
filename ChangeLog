@@ -1,3 +1,21 @@
+2007-12-26  Alex Graveley  <alex@beatniksoftware.com>
+
+	* er.js (ErProc._threadmain): Apply spawned function to new
+	object, to inhibit variable access, and allow arguments to be
+	passed directly.
+	(ErProc._match): Handle Array patterns as a list of options; any
+	single subelement match counts as a successful match.
+	(ErProc._receive): Push unhandled messages onto a pending queue,
+	so a Er.receive doesn't drop unhandled messages.
+	(ErProc._run): Don't toss previous retval in case of a
+	StopIteration, since this will hold the final value.
+
+	Add Er.Ajax, and Er.AjaxOptions.  Er.Ajax.get/post do
+	pseudo-synchronous calls to Er.Ajax.spawn.
+
+	* test.html: Use Er.Ajax.get to fetch "index.html", and load its
+	text into an iframe.
+
 2007-12-21  Alex Graveley  <alex@beatniksoftware.com>
 
 	* index.html: Add this.  Just copy and paste the

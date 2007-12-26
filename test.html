@@ -135,16 +135,28 @@ Er.spawn(function() {
 });
 
 
+// Fetch index.html using synchronous Er.Ajax.
+Er.spawn(function() {
+   var div = document.createElement("div");
+   document.body.appendChild(div);
+   log(div, "Ajax(" + Er.pid() + "): Getting 'index.html'...");
+
+   var res = (yield Er.Ajax.get("index.html"));
+
+   log(div, "Done. Success: " + res.Success + ".");
+   log(div, "Loading iframe...</br>");
+
+   var iframe = document.createElement("iframe");
+   iframe.width = 500;
+   div.appendChild(iframe);
+
+   iframe.contentWindow.document.write(res.Text);
+   iframe.contentWindow.stop();
+});
+
+
 /* Future work... */
 /*
-rpc = Er.spawn("http://www.beatniksf.com/echo");
-yield Er.send(rpc, { Echo: "This is the echo payload" });
-
-yield Er.receive({ EchoResponse: String },
-                 function (msg) {
-                    alert("Got Echo response: " + msg.EchoResponse);
-                 });
-
 Er.link_event("button1", "click");
 
 yield Er.receive({ Signal: Er.Event, From: _, Event: "click" },
@@ -152,6 +164,7 @@ yield Er.receive({ Signal: Er.Event, From: _, Event: "click" },
                     alert("Got Click event from: " + msg.From);
                  });
 */
+
 
 </script>
 
