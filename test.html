@@ -151,6 +151,7 @@ Er.spawn(function() {
    div.appendChild(iframe);
 
    iframe.contentWindow.document.write(res.Text);
+   yield Er.sleep(1000);
    iframe.contentWindow.stop();
 });
 
