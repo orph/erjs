@@ -104,7 +104,7 @@ processes, spawn new processes, receive queued messages or perform other work.
 matching one of patterns is received and handled, we put a <code>yield</code> in
 front of the call to avoid blocking other processes.</p>
 
-<h3>Linked Processes</h3>
+<h4>Linked Processes</h4>
 
 <p>When a process finishes or exits, it automatically sends a message to any
 processes which link to it.  Linking is done by passing a pid to
@@ -118,7 +118,7 @@ exception.  If the linking process does not handle this message, it will exit
 itself, sending exit messages to its own linked processes.  This allows for
 simple process chaining and failure handling.</p>
 
-<h3>Message Multicast</h3>
+<h4>Message Multicast</h4>
 
 <p>Er.js Processes can also register to receive messages sent to a given name string,
 using <code>Er.register(name)</code>.  Registered names can be passed as the
@@ -126,37 +126,69 @@ first argument to <code>Er.send</code>.  Multiple processes can register for the
 same name, and they will all receive a message sent to that name, allowing for
 simple multi-casting.</p>
 
-<h3>Future Work: AJAX & Threading</h3>
+<h3>Concurrent AJAX with Er.Ajax</h3>
 
-<p>Going forward, Er.js will wrap certain long-running asynchronous JavaScript
-calls in synchronous yielding wrappers so that processes can avoid convoluted
+<p>XmlHttpRequest, AJAX and JSON integrate nicely with the process and
+message-passing model, allowing processes to avoid asynchronous JavaScript and
+callbacks.</p>
+
+<p>Instead, using message-passing and concurrency, Er.js makes network access
+transparent, without blocking other processes or interactivity:</p>
+
+<pre><big>result = <strong>yield Er.Ajax.get</strong>("http://beatniksf.com/erjs/index.html");
+alert("Fetched Content: " + result.Text);</big></pre>
+
+<p>Under the covers, this is accomplished using a concurrently spawned process
+(started via <code>Er.Ajax.spawn</code>), which handles XmlHttpRequest
+internals.  The spawned process uses <code>Er.send</code> to tell our
+process about download progress and completion.</p>
+
+<p><code>Er.Ajax.get</code> and others (<code>post</code>, <code>json</code>,
+etc) are implemented by yielding execution until the final message
+from the spawned process is received, and then returning it to the caller:</p>
+
+<pre><big>function myGet(url) {
+   var pid = <strong>Er.Ajax.spawn</strong>(<strong>Er.pid</strong>(), url);
+   <strong>yield Er.receive</strong>({ From: pid, Success: _, _:_ },
+                    function(msg) { return msg; });
+}</big></pre>
+
+<h3>Future Work</h3>
+
+<p>Er.js will wrap certain long-running asynchronous JavaScript calls in
+synchronous yielding wrappers so that processes can avoid convoluted
 asynchronous code.</p>
 
-<p>XmlHttpRequest, AJAX and JSON should integrate nicely with the process and
-message-passing model.  This will allow processes to avoid asynchronous
-callbacks, instead using <code>Er.send</code> and <code>Er.receive</code> as
-with other messages.  For example:</p>
+<h4>JSON-based Remote Procedure Calls</h4>
 
-<pre><big>rpc = <strong>Er.spawn</strong>("http://www.beatniksoftware.com/echo");
+Like Erlang itself, Er.js will enable easy interaction with concurrent processes
+running on remote nodes. Using JSON and XML, messages can be sent to and
+received from remote servers using the same API as locally running concurrent
+processes:
+
+<pre><big>var rpc = <strong>Er.spawn</strong>("http://www.beatniksoftware.com/echo");
+...
 <strong>Er.send</strong>(rpc, { Echo: "This is the echo payload" });
-
 <strong>yield Er.receive</strong>({ EchoResponse: String },
                  function (msg) {
                     alert("Got Echo response: " + msg.EchoResponse);
-                 });
-</big></pre>
+                 });</big></pre>
 
-<p>For DOM Events, this might be embodied with the following, where
-<code>"button1"</code> below could alternately be an element id, DOM node, CSS
-selector, etc:</p>
+<h4>DOM Events</h4>
 
-<pre><big><strong>Er.link_event</strong>("button1", "click");
+<p>Like with remote resources Er.js should concurrently handle DOM Events,
+inserting received events into listening processes message queues.  Consider the
+following, where <code>"button1"</code> could alternately be an element id, DOM
+node, CSS selector, etc:</p>
 
+<pre><big><strong>Er.monitor_event</strong>("button1", "click");
 <strong>yield Er.receive</strong>({ Signal: Er.Event, From: _, Event: "click" },
                  function (msg) {
                     alert("Got Click event from: " + msg.From);
                  });
 </big></pre>
+
+<h4>Native Threading</h4>
 
 <p>It would also be interesting to explore the use of native threads for running
 processes, leveraging e.g. Google Gears' <a
