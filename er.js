@@ -34,7 +34,7 @@ var Er = {
    // Start a function in a new process, optionally passing
    // arguments.  The function can be a generator.  If no arguments
    // are specified, [] is passed.  Usage:
-   //   <pid> = Er.spawn(function () { ... } [, args...])
+   //   pid = Er.spawn(function () { ... } [, args...])
    spawn: function(fun) {
       var args = Array.prototype.slice.call(arguments, 1);
       return Er._addproc(fun, args, null)._pid;
@@ -42,7 +42,7 @@ var Er = {
 
    // Same as Er.spawn, but link the current process to the spawned 
    // process' exit signal.  Usage:
-   //   <pid> = Er.spawn_link(function () { ... } [, args...])
+   //   pid = Er.spawn_link(function () { ... } [, args...])
    spawn_link: function(fun) {
       var args = Array.prototype.slice.call(arguments, 1);
       return Er._addproc(fun, args, Er._current._pid)._pid;
@@ -105,8 +105,9 @@ var Er = {
    /* NOTE: Requires yield.  Receive a single message sent to this
     * pid, by matching a list of patterns against an incoming
     * message.  Patterns are followed by a handler function, listed
-    * after patterns. Usage:
-    *   yield Er.receive(
+    * after patterns.  The final return value is the return value of
+    * the invoked handler.  Usage:
+    *   val = yield Er.receive(
     *         // List of patterns to match
     *      { MyKey: 123 },      // Explicit matches...
     *      { MyKey: "abc" },    // ... Strings
@@ -272,8 +273,6 @@ ErProc.prototype = {
    // Arrays match any one submember matching.
    _match: function(pattern, value) {
       if (pattern == _ ||
-          pattern == value == null ||
-          pattern == value == undefined ||
           pattern == value ||
           pattern == value.constructor)
          return true;
@@ -480,7 +479,7 @@ Er.AjaxOptions.prototype = {
    },
    Timeout: 0,
    UseCache: false,
-   IfModified: true,
+   IfModified: true,     // Set La
    NotifyHeaders: false,
    NotifyPartial: false
 };
@@ -491,20 +490,39 @@ Er.Ajax = {
 
    _lastModified: {}, // url: date-string
 
-   get: function(url, options) {
-      var pid = Er.Ajax.spawn(url, null, options);
-      yield Er.receive({ From: pid, Success: _, _:_ },
-                       function(msg) { return msg; });
-   },
-
+   // NOTE: Requires yield.  Er.Ajax.spawn wrapper to POST to a URL
+   // (pseudo-)synchronously.  Waits until receiving a message from
+   // the spawn'd process with the Success field set, and returns
+   // that message.
    post: function(url, data, options) {
-      var pid = Er.Ajax.spawn(url, data, options);
+      var pid = Er.Ajax.spawn(Er.pid(), url, data, options);
       yield Er.receive({ From: pid, Success: _, _:_ },
                        function(msg) { return msg; });
    },
 
-   spawn: function(url, data, options) {
-      return Er.spawn(function (url, data, options, caller) {
+   // NOTE: Requires yield.  Like Er.Ajax.post, but GET content.
+   get: function(url, options) {
+      yield Er.Ajax.post(url, null, options);
+   },
+
+   /* NOTE: Requires yield.  Spawn a new process to download URL,
+    * possibly POSTing data.  Er.Ajax.DefaultOptions are used if no
+    * options are specified.
+    * The pid arg will receive messages of the form: 
+    *    { From:       Spawn'd Pid
+    *      Url:        URL,
+    *      Success:    true/false if finished,
+    *      Text:       URL body text
+    *      XmlDoc:     XMLDocument if response is XML
+    *      Status:     HTTP status code,
+    *      StatusText: HTTP status text,
+    *      Headers:    { Optional response headers name/val } }
+    * The final message will have a Success boolean set, and the
+    * process will exit normally regardless of Success.  Usage: 
+    *    pid = yield Er.Ajax.spawn(pid, url, [, data [, Er.AjaxOptions]]);
+    */
+   spawn: function(from, url, data, options) {
+      return Er.spawn(function (from, url, data, options) {
          // Create the request object; Microsoft failed to properly implement the
          // XMLHttpRequest in IE7, so we use the ActiveXObject when it is available
          var xml = new XMLHttpRequest();
@@ -553,7 +571,7 @@ Er.Ajax = {
                xml = null;
             }
 
-            Er.send(caller, msg);
+            Er.send(from, msg);
          };
 
          // Set the If-Modified-Since header, if ifModified mode.
@@ -588,6 +606,6 @@ Er.Ajax = {
                              }
                              Er.exit(msg);
                           });
-      }, url, data, options || Er.Ajax.DefaultOptions, Er.pid());
-   },
+      }, from, url, data, options || Er.Ajax.DefaultOptions);
+   }
 };

@@ -141,7 +141,7 @@ Er.spawn(function() {
    document.body.appendChild(div);
    log(div, "Ajax(" + Er.pid() + "): Getting 'index.html'...");
 
-   var result = (yield Er.Ajax.get("index.html"));
+   var result = yield Er.Ajax.get("index.html");
 
    log(div, "Done. Success: " + result.Success + ".");
    log(div, "Loading iframe...</br>");
