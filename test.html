@@ -141,18 +141,19 @@ Er.spawn(function() {
    document.body.appendChild(div);
    log(div, "Ajax(" + Er.pid() + "): Getting 'index.html'...");
 
-   var res = (yield Er.Ajax.get("index.html"));
+   var result = (yield Er.Ajax.get("index.html"));
 
-   log(div, "Done. Success: " + res.Success + ".");
+   log(div, "Done. Success: " + result.Success + ".");
    log(div, "Loading iframe...</br>");
 
    var iframe = document.createElement("iframe");
    iframe.width = 500;
    div.appendChild(iframe);
 
-   iframe.contentWindow.document.write(res.Text);
-   yield Er.sleep(1000);
-   iframe.contentWindow.stop();
+   var idoc = iframe.contentWindow.document;
+   idoc.open();
+   idoc.write(result.Text);
+   idoc.close();
 });
 
 
