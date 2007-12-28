@@ -37,7 +37,7 @@ var Er = {
    //   pid = Er.spawn(function () { ... } [, args...])
    spawn: function(fun) {
       var args = Array.prototype.slice.call(arguments, 1);
-      return Er._addproc(fun, args, null)._pid;
+      return Er._addproc(fun, args, false)._pid;
    },
 
    // Same as Er.spawn, but link the current process to the spawned 
@@ -45,7 +45,7 @@ var Er = {
    //   pid = Er.spawn_link(function () { ... } [, args...])
    spawn_link: function(fun) {
       var args = Array.prototype.slice.call(arguments, 1);
-      return Er._addproc(fun, args, Er._current._pid)._pid;
+      return Er._addproc(fun, args, true)._pid;
    },
 
    // Get the current process pid
@@ -57,49 +57,63 @@ var Er = {
    // Multiple processes can register the same name, and a process
    // can have multiple registered names.
    register: function(name, pid) {
-      if (!Er._names[name])
-         Er._names[name] = [];
-      if (!(pid in Er._names[name]))
-         Er._names[name].push(pid);
+      if (Er._names[pid].indexOf(name) < 0)
+          Er._names[pid].push(name);
    },
 
    // Return a list of pids registered to a name.
    registered: function(name) {
-      return Er._names[name];
+      return [Number(pid) for (pid in Er._names)
+              if (Er._names[pid].indexOf(name) > -1)];
    },
 
-   // Send a message, in the form of an associative array to the /
-   // given pid or registered name.  The msg argument is always
-   // returned. Usage:
+   // Send a message, in the form of an associative array to the / given pid or
+   // registered name.  The msg argument is copied for each destination process,
+   // and original always returned. Usage:
    //    msg = Er.send(<pid|name>, { Key: Value, ... });
    send: function(id, msg) {
       Er._pidof(id).forEach(function(pid) {
-         Er._pids[pid]._send(msg);
+         Er._pids[pid]._send(Er._copy(msg));
       });
       return msg;
    },
 
    // Link the current process to id's exit signal, where id is a pid
    // or registered name.
-   link: function(id) {
-      Er._pidof(id).forEach(function(pid) {
-         Er._linkpids(pid, Er._current._pid);
-      });
+   link: function(pid) {
+      Er._links[pid][Er._current._pid] = true;
+      Er._links[Er._current._pid][pid] = true;
    },
 
    // Unlink the current process from id's exit signal.
-   unlink: function(id) {
-      Er._pidof(id).forEach(function(pid) {
-         delete Er._links[pid][Er._current._pid];
-      });
+   unlink: function(pid) {
+      delete Er._links[pid][Er._current._pid];
+      delete Er._links[Er._current._pid][pid];
    },
 
-   // Exit the current process, with optional exit Reason, passed to
-   // linked processes.  If no reason is specified, normal exit is
-   // assume, and do not messages sent.
+   /* Exit the current process or another pid, with optional exit
+    * Reason passed to linked processes.  If no reason is specified,
+    * Er.Normal exit is assumed, and no messages sent.  Usage:
+    *    Er.exit();             // Exit current with Er.Normal
+    *    Er.exit(aReason);      // Exit current with aReason
+    *    Er.exit(pid, aReason); // Exit pid with aReason
+    */
    exit: function() {
-      Er._current._exit(
-         (arguments.length > 0 && arguments[0]) || Er.Normal);
+      switch(arguments.length) {
+      case 2:
+         if (arguments[1] != Er.Normal) {
+            Er._pids[arguments[0]]._send({ Signal: Er.Exit,
+                                           From: Er.pid(),
+                                           Reason: arguments[1] });
+         }
+         break;
+      case 1:
+         Er._current._exit(arguments[0]);
+         break;
+      case 0:
+         Er._current._exit(Er.Normal);
+         break;
+      }
    },
 
    /* NOTE: Requires yield.  Receive a single message sent to this
@@ -124,16 +138,14 @@ var Er = {
     *      function(msg) { ... });
     */
    receive: function() {
-      yield Er._current._receive(arguments);
+      return Er._current._receive(arguments);
    },
 
    // NOTE: Requires yield.  Sleep a number of milliseconds before
    // continuing the process.  Usage:
    //   yield Er.sleep(1000); // 1 second
    sleep: function(millis) {
-      if (Er._current == Er._mainproc)
-         throw("Er: Cannot sleep inside the main process!");
-      yield Er._current._sleep(millis);
+      return Er._current._sleep(millis);
    },
 
    /*
@@ -141,7 +153,7 @@ var Er = {
     */
 
    _pids: [],  // [pid] = ErProc instance
-   _names: {}, // [name] = [pid, ...]
+   _names: [], // [pid] = [name, ...]
    _links: [], // [pid] = [dest_pid, ...]
    _mainproc: null,
    _current: null,
@@ -158,15 +170,17 @@ var Er = {
 
    // Create and run a new ErProc process which will call fun(args),
    // possibly creating an initial link to link_pid.
-   _addproc: function(fun, args, link_pid) {
-      var newpid = Er._pids.length;
+   _addproc: function(fun, args, linked) {
+      var newpid = 0;
+      while (Er._pids[newpid])
+         newpid++;
       var newproc = new ErProc(newpid, fun, args);
 
       Er._pids[newpid] = newproc;
-
-      delete Er._links[newpid];
-      if (link_pid)
-         Er._linkpids(newpid, link_pid);
+      Er._names[newpid] = [];
+      Er._links[newpid] = [];
+      if (linked)
+         Er.link(newpid);
 
       newproc._start();
       return newproc;
@@ -176,50 +190,66 @@ var Er = {
    // processes.
    _removeproc: function(pid, exitreason) {
       delete Er._pids[pid];
+      delete Er._names[pid];
 
-      for (var name in Er._names) {
-         if (pid in Er._names[name])
-            delete Er._names[name][pid];
-      }
+      for (linkpid in Er._links[pid]) {
+         linkpid = Number(linkpid);
 
-      var outlinks = Er._links[pid] || [];
-      delete Er._links[pid];
+         // Clear in case linkpid survives
+         delete Er._links[linkpid][pid];
 
-      if (exitreason && exitreason != Er.Normal) {
-         for (var i in outlinks) {
-            if (outlinks[i] == true) {
-               Er.send(parseInt(i), { Signal: Er.Exit,
+         if (exitreason != Er.Normal) {
+            // Can't use Er.exit, as _removeproc might be called out 
+            // of the running process.
+            Er._pids[linkpid]._send({ Signal: Er.Exit,
                                       From: pid,
                                       Reason: exitreason });
-            }
          }
       }
+      delete Er._links[pid];
    },
 
    // Get the list of pids for a given registered name.  Passing a
    // pid or ErProc will do the obvious.
    _pidof: function(id) {
-      if (typeof(id) == "number" || id instanceof Number) {
-         if (!(id in Er._pids))
-            return []; // Ignore missing pids
-         return [id];
+      if (typeof(id) == "number") {
+         return Er._pids[id] ? [id] : []; // Ignore missing pids
       } else if (id instanceof ErProc) {
          return [id._pid];
       } else {
-         if (!(id in Er._names))
+         var pids = Er.registered(id);
+         if (pids.length == 0)
             throw("Er: Process name not registered: " + 
                   id + " (" + typeof(id) + ")");
-         return Er._names[id];
+         return pids;
       }
    },
 
-   // Link pid to dest_pid, so that when pid exits, dest_pid will
-   // recieve it's exit signal.
-   _linkpids: function(pid, dest_pid) {
-      if (!Er._links[pid])
-         Er._links[pid] = [];
-      Er._links[pid][dest_pid] = true;
-   },
+   // Recursively duplicate an object.  Each sent message is copied
+   // before forwarding to the destination.
+   _copy: function(obj) {
+      if (typeof(obj) != "object" || !obj)
+         return obj;
+
+      var ret;
+      if (obj.constructor == Date ||
+          obj.constructor == String ||
+          obj.constructor == Number) {
+         ret = new obj.constructor(obj);
+      } else if (obj.constructor == Array) {
+         ret = new Array();
+      } else {
+         ret = new Object();
+         ret.constructor = obj.constructor;
+      }
+
+      ret.prototype = obj.prototype;
+      for (i in obj) {
+         ret[i] = Er._copy(obj[i]);
+      }
+
+      return ret;
+   }
 };
 
 
@@ -228,12 +258,15 @@ function ErProc(pid, fun, args) {
    this._queue = [];
    this._stack = [];
 
-   var _this = this;
-   this._resumeDelegate = function(retval) {
-      _this._run(retval, false);
-   };
    this._start = function() {
-      _this._run(_this._threadmain(fun, args), false);
+      this._run(this._threadmain(fun, args), false);
+   };
+
+   var _this = this;
+   this._resume = function(retval) {
+      if (_this._stack.length) {
+         _this._run(retval, false);
+      }
    };
 }
 ErProc.prototype = {
@@ -243,29 +276,35 @@ ErProc.prototype = {
     * Callbacks from Er on the current ErProc...
     */
 
-   // Start running fun(args), and yield the result.  Catch exceptions and use
-   // as the exitreason sent to Er._removeproc.
+   // Start running fun(args), and yield the result.  Catch 
+   // exceptions and use as the exitreason sent to Er._removeproc.
    _threadmain: function(fun, args) {
-      // Wait until the document is loaded.
-      while (!document.body) {
-         yield Er.sleep(100);
-      }
-
-      var retval;
+      var retval = Er.Normal;
       try {
-         retval = (yield fun.apply({}, args));
+         // Wait until the document is loaded.
+         while (!document.body) {
+            yield Er.sleep(100);
+         }
+         yield fun.apply({}, args);
       } catch(e if e == StopIteration) {
-         retval = undefined;
+         // Normal exit
       } catch(e) {
          retval = e;
       }
-
       Er._removeproc(this._pid, retval);
    },
 
-   // Just throw the reason for the process _threadmain to catch.
+   // Throw the reason in the current execution stack, to be finally caught by
+   // _threadmain, or kill the stack if this process isn't currently running.
    _exit: function(reason) {
-      throw reason;
+      if (Er._current == this) {
+         throw reason;
+      } else {
+         while (this._stack.length) {
+            this._stack.pop().close();
+         }
+         Er._removeproc(this._pid, reason);
+      }
    },
 
    // See Er.receive description for what this is supposed to do.  Hashtable
@@ -281,8 +320,8 @@ ErProc.prototype = {
          return false;
 
       if (pattern instanceof Array) {
-         for (var idx in pattern) {
-            for (var vidx in value) {
+         for (idx in pattern) {
+            for (vidx in value) {
                if (this._match(pattern[idx], value[vidx]))
                   return true;
             }
@@ -291,7 +330,7 @@ ErProc.prototype = {
          return value.length == 0;
       } else {
          var match_any = "_" in pattern;
-         for (var name in pattern) {
+         for (name in pattern) {
             if (!match_any && !value.hasOwnProperty(name))
                return false;
             if (!this._match(pattern[name], value[name]))
@@ -352,12 +391,6 @@ ErProc.prototype = {
                   break loop;
                }
             }
-
-            // Unhandled link exit. Exit this process too.
-            if (msg.Signal == Er.Exit && msg.Reason != Er.Normal) {
-               Er.exit(msg.Reason);
-            }
-
             pending.push(msg);
          }
 
@@ -370,7 +403,11 @@ ErProc.prototype = {
    },
 
    _send: function(msg) {
-      this._queue.push(msg || {});
+      if (msg.Signal == Er.Exit && msg.Reason != Er.Normal) {
+         this._exit(msg.Reason);
+      } else {
+         this._queue.push(msg);
+      }
    },
 
    _sleep: function(millis) {
@@ -384,9 +421,6 @@ ErProc.prototype = {
    /* special yield value which tells a Thread to send a continuation callback
     * for resuming a thread */
    _CONTINUATION: { toString: function() { return "[object ErProc._CONTINUATION]" } },
-
-   /* special yield value which tells a Thread to send the Thread object itself */
-   _THREAD: { toString: function() { return "[object ErProc._THREAD]" } },
 
    // Execute this ErProc using trampolining... this is copied
    // directly from Threads.js.  Changed to always set/unset the
@@ -405,14 +439,10 @@ ErProc.prototype = {
                // we're done
                return;
             }
-         } else if (retval == this._THREAD) {
-            // generator is requesting this thread object
-            method = "send";
-            arg    = this;
          } else if (retval == this._CONTINUATION) {
             // generator is requesting our resume callback
             method = "send";
-            arg    = this._resumeDelegate;
+            arg    = this._resume;
          } else if (retval == this._SUSPEND) {
             // generator has requested we suspend
             return;
@@ -448,6 +478,7 @@ ErProc.prototype = {
          } catch(e if e == StopIteration) {
             // since a normal return results in StopIteration, we'll
             // just treat this as a return
+            retval = undefined;
             isException = false;
          } catch(e) {
             retval = e;
@@ -496,13 +527,13 @@ Er.Ajax = {
    // that message.
    post: function(url, data, options) {
       var pid = Er.Ajax.spawn(Er.pid(), url, data, options);
-      yield Er.receive({ From: pid, Success: _, _:_ },
-                       function(msg) { return msg; });
+      return Er.receive({ From: pid, Success: _, _:_ },
+                        function(msg) { return msg; });
    },
 
    // NOTE: Requires yield.  Like Er.Ajax.post, but GET content.
    get: function(url, options) {
-      yield Er.Ajax.post(url, null, options);
+      return Er.Ajax.post(url, null, options);
    },
 
    /* NOTE: Requires yield.  Spawn a new process to download URL,
@@ -546,8 +577,9 @@ Er.Ajax = {
 
             if (options.Response.Headers.length) {
                msg.Headers = {};
-               for (header in options.Response.Headers)
-                  msg.Headers[header] = xml.getResponseHeader(header);
+               for (idx in options.Response.Headers)
+                  msg.Headers[header] = 
+                     xml.getResponseHeader(options.Response.Headers[idx]);
             }
 
             // Update last-modified cache
@@ -595,9 +627,7 @@ Er.Ajax = {
          xml.send(data);
 
          yield Er.receive({ Done: true },
-                          function(msg) {
-                             Er.exit();
-                          },
+                          function(msg) { },
                           { Cancel: true },
                           function(msg) {
                              if (xml) {

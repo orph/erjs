@@ -1,3 +1,11 @@
+2007-12-28  Alex Graveley  <alex@beatniksoftware.com>
+
+	* er.js: Make link/unlink symmetric, so exit of either link will
+	signal the other.  Make exit(pid, reason) to kill another process
+	work.  Make link exiting immediate, instead of waiting for
+	Er.receive to see the message.  Recycle unused pids.  Recursively
+	copy messages passed to Er.send.  Drop unused ErProc._THREAD.
+
 2007-12-26  Alex Graveley  <alex@beatniksoftware.com>
 
 	* er.js (ErProc._threadmain): Apply spawned function to new
