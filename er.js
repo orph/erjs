@@ -228,7 +228,10 @@ var Er = {
    // Recursively duplicate an object.  Each sent message is copied
    // before forwarding to the destination.
    _copy: function(obj) {
-      if (typeof(obj) != "object" || !obj)
+      if (typeof(obj) != "object" || !obj || 
+          obj instanceof Document ||
+          obj instanceof Element ||
+          obj instanceof Event)
          return obj;
 
       var ret;
@@ -637,5 +640,32 @@ Er.Ajax = {
                              Er.exit(msg);
                           });
       }, from, url, data, options || Er.Ajax.DefaultOptions);
+   }
+};
+
+
+Er.DOM = {
+   receive: function(elem, evtype, capture, stop) {
+      var _pid = Er.pid();
+      var listener = {
+         handleEvent: function(ev) {
+            Er.send(_pid, { Element: elem,
+                            Event: ev,
+                            Type: evtype,
+                            Capture: capture });
+            if (stop) {
+               event.preventDefault();
+               event.stopPropagation();
+            }
+         }
+      };
+      elem.addEventListener(evtype, listener, capture);
+      var ev = yield Er.receive({ Element: elem,
+                                  Event: _,
+                                  Type: evtype,
+                                  Capture: capture },
+                                function (msg) { return msg.Event });
+      elem.removeEventListener(evtype, listener, capture);
+      yield ev;
    }
 };
