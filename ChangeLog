@@ -1,5 +1,10 @@
 2007-12-29  Alex Graveley  <alex@beatniksoftware.com>
 
+	* er.js: In Er.DOM, split out event subscription and onetime event
+	receive, and make the listener remove itself if it's a onetime.
+
+2007-12-29  Alex Graveley  <alex@beatniksoftware.com>
+
 	* er.js: In Er.Ajax.start, convert POST data to param string.  Add
 	Er.Ajax.json, which calls eval on the result message.  Rework to
 	not spawn a pid to handle each request.

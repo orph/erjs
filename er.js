@@ -682,7 +682,7 @@ Er.Ajax = {
 
 
 Er.DOM = {
-   receive: function(elem, evtype, capture, stop) {
+   listen: function(elem, evtype, capture, stop, onetime) {
       var _pid = Er.pid();
       var listener = {
          handleEvent: function(ev) {
@@ -691,18 +691,24 @@ Er.DOM = {
                             Type: evtype,
                             Capture: capture });
             if (stop) {
-               event.preventDefault();
-               event.stopPropagation();
+               ev.preventDefault();
+               ev.stopPropagation();
+            }
+            if (onetime) {
+               elem.removeEventListener(evtype, listener, capture);
             }
          }
       };
       elem.addEventListener(evtype, listener, capture);
-      var ev = yield Er.receive({ Element: elem,
-                                  Event: _,
-                                  Type: evtype,
-                                  Capture: capture },
-                                function (msg) { return msg.Event });
-      elem.removeEventListener(evtype, listener, capture);
-      yield ev;
+      return listener;
+   },
+
+   receive: function(elem, evtype, capture, stop) {
+      Er.DOM.listen(elem, evtype, capture, stop, true);
+      return Er.receive({ Element: elem,
+                          Event: _,
+                          Type: evtype,
+                          Capture: capture },
+                        function (msg) { return msg.Event });
    }
 };
