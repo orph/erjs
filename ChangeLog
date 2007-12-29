@@ -1,5 +1,11 @@
 2007-12-29  Alex Graveley  <alex@beatniksoftware.com>
 
+	* er.js: In Er.Ajax.start, convert POST data to param string.  Add
+	Er.Ajax.json, which calls eval on the result message.  Rework to
+	not spawn a pid to handle each request.
+
+2007-12-29  Alex Graveley  <alex@beatniksoftware.com>
+
 	* index.html: Move Er.DOM section out of Future Work section,
 	since it kinda already works.
 

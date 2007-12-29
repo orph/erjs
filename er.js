@@ -505,7 +505,7 @@ Er.AjaxOptions.prototype = {
    Method: null,         // Override POST with data, GET without
    Request: {
       Headers: { },      // Header: value to send
-      ContentType: null, // Override "application/x-www-form-urlencoded"
+      ContentType: "application/x-www-form-urlencoded",
    },
    Response: {
       Headers: [],       // List of header names to return
@@ -524,124 +524,159 @@ Er.Ajax = {
 
    _lastModified: {}, // { url: last-modified }
 
-   // NOTE: Requires yield.  Er.Ajax.spawn wrapper to POST to a URL
-   // (pseudo-)synchronously.  Waits until receiving a message from
-   // the spawn'd process with the Success field set.  If true,
-   // returns the response Text, otherwise throws the failed message.
+   // NOTE: Requires yield.  POST to a URL (pseudo-)synchronously.
+   // Waits until receiving a final status message with the Success
+   // field set.  If true, returns the response text, otherwise
+   // throws the failed status message.
    post: function(url, data, options) {
-      var pid = Er.Ajax.spawn(Er.pid(), url, data, options);
-      return Er.receive({ From: pid, Success: true, _:_ },
-                        function(msg) { return msg.Text; },
-                        { From: pid, Success: false, _:_ },
-                        function(msg) { throw msg; });
+      return Er.Ajax._send(url, data, options);
    },
 
    // NOTE: Requires yield.  Like Er.Ajax.post, but GET content.
    get: function(url, options) {
-      return Er.Ajax.post(url, null, options);
+      return Er.Ajax._send(url, null, options);
    },
 
-   /* NOTE: Requires yield.  Spawn a new process to download URL,
-    * possibly POSTing data.  Er.Ajax.DefaultOptions are used if no
-    * options are specified.
-    * The pid arg will receive messages of the form: 
-    *    { From:       Spawn'd Pid
-    *      Url:        URL,
+   // NOTE: Requires yield.  Like Er.Ajax.post, but use eval to
+   // convert the result text into an object.
+   json: function(url, data, options) {
+      // XXX: Handle JSONP style callbacks
+      var txt = Er.Ajax._send(url, data, options);
+      return eval("(" + txt + ")");
+   },
+
+   // Helper to start a request and wait for the final status
+   // message, returning the response body or throwing the failure
+   // message.
+   _send: function(url, data, options) {
+      Er.Ajax.start(url, data, options);
+
+      // Don't need yield because we don't expect to be called again
+      return Er.receive({ Url: url, Success: true, _:_ },
+                        function(msg) { return msg.Text; },
+                        { Url: url, Success: false, _:_ },
+                        function(msg) { throw msg; });
+   },
+
+   // Serialize an array of form elements or a set of key/values into
+   // a query string.  Ripped from jQuery.
+   _param: function(obj) {
+      var s = [];
+      var enc = encodeURIComponent;
+
+      // If an array was passed in, assume that it is an array of
+      // form elements
+      if (obj.constructor == Array) {
+         // Serialize the form elements
+         obj.forEach(function(v){
+            s.push(enc(v.name) + "=" + enc(v.value));
+         });
+      } else {
+         // Otherwise, assume that it's an object of key/value pairs
+         for (j in obj) {
+            // If the value is an array then the key names need to be repeated
+            if (obj[j] && obj[j].constructor == Array) {
+               obj[j].forEach(function(v){
+                  s.push(enc(j) + "=" + enc(v));
+               });
+            } else {
+               // Serialize the key/values
+               s.push(enc(j) + "=" + enc(obj[j]));
+            }
+         }
+      }
+
+      // Return the resulting serialization
+      return s.join("&").replace(/%20/g, "+");
+   },
+
+   /* Create and send an XMLHttpRequest for url, sending data as the
+    * request body.  If data is an object it will be converted to a
+    * param string.  Er.Ajax.DefaultOptions are used if no options
+    * are specified.  Returns the created XMLHttpRequest.  Status
+    * messages are delivered to the current pid, and take the form:
+    *    { Url:        URL,
     *      Success:    true/false if finished,
     *      Text:       URL body text
     *      XmlDoc:     XMLDocument if response is XML
     *      Status:     HTTP status code,
     *      StatusText: HTTP status text,
     *      Headers:    { Optional response headers name/val } }
-    * The final message will have a Success boolean set, and the
-    * process will exit normally regardless of Success.  Usage: 
-    *    pid = yield Er.Ajax.spawn(pid, url, [, data [, Er.AjaxOptions]]);
+    * The last message will have a Success boolean set.
     */
-   spawn: function(from, url, data, options) {
-      return Er.spawn(function (from, url, data, options) {
-         // Create the request object; Microsoft failed to properly implement the
-         // XMLHttpRequest in IE7, so we use the ActiveXObject when it is available
-         var xml = new XMLHttpRequest();
+   start: function(url, data, options) {
+      var xml = new XMLHttpRequest();
 
-         // Open the socket (async)
-         xml.open(options.Method || (data ? "POST" : "GET"), url, true, 
-                  options.Username, options.Password);
+      if (!options)
+         options = Er.Ajax.DefaultOptions;
 
-         var _pid = Er.pid();
-         xml.onreadystatechange = function() {
-            if (!xml || (xml.readyState == 2 && !options.NotifyHeaders) ||
-                (xml.readyState == 3 && !options.NotifyPartial) ||
-                xml.readyState != 4)
-               return;
+      // Open the socket (async)
+      xml.open(options.Method || (data ? "POST" : "GET"), url, true, 
+               options.Username, options.Password);
 
-            var msg = { From: _pid,
-                        Url: url,
-                        Status: xml.status,
-                        StatusText: xml.statusText,
-                        Text: xml.responseText };
+      var _pid = Er.pid();
+      xml.onreadystatechange = function() {
+         if (!xml || (xml.readyState == 2 && !options.NotifyHeaders) ||
+             (xml.readyState == 3 && !options.NotifyPartial) ||
+             xml.readyState != 4)
+            return;
 
-            if (options.Response.Headers.length) {
-               msg.Headers = {};
-               for (idx in options.Response.Headers)
-                  msg.Headers[header] = 
-                     xml.getResponseHeader(options.Response.Headers[idx]);
-            }
+         var msg = { Url: url,
+                     Status: xml.status,
+                     StatusText: xml.statusText,
+                     Text: xml.responseText };
 
-            // Update last-modified cache
-            var lm = Er.Ajax._lastModified[url];
-            try { lm = xml.getResponseHeader("Last-Modified") } catch (e) {}
-            if (options.IfModified && lm)
-               Er.Ajax._lastModified[url] = lm;
+         if (options.Response.Headers.length) {
+            msg.Headers = {};
+            for (idx in options.Response.Headers)
+               msg.Headers[header] = xml.getResponseHeader(
+                  options.Response.Headers[idx]);
+         }
 
-            if (xml.readyState == 4) {
-               // Get the finished xml document
-               var ct = options.Response.ContentType;
-               try { ct = xml.getResponseHeader("content-type") } catch (e) {}
-               if (ct && ct.indexOf("xml") >= 0)
-                  msg.XmlDoc = xml.responseXML;
+         // Update last-modified cache
+         var lm = Er.Ajax._lastModified[url];
+         try { lm = xml.getResponseHeader("Last-Modified") } catch (e) {}
+         if (options.IfModified && lm)
+            Er.Ajax._lastModified[url] = lm;
 
-               msg.Success = (!xml.status && location.protocol == "file:") ||
-                  (xml.status >= 200 && xml.status < 300 ) ||
-                  xml.status == 304;
+         if (xml.readyState == 4) {
+            // Get the finished xml document
+            var ct = options.Response.ContentType;
+            try { ct = xml.getResponseHeader("content-type") } catch (e) {}
+            if (ct && ct.indexOf("xml") >= 0)
+               msg.XmlDoc = xml.responseXML;
 
-               Er.send(_pid, { Done: true });
-               xml = null;
-            }
+            msg.Success = (!xml.status && location.protocol == "file:") ||
+               (xml.status >= 200 && xml.status < 300 ) ||
+               xml.status == 304;
 
-            Er.send(from, msg);
-         };
+            xml = null;
+         }
 
-         // Set the If-Modified-Since header, if ifModified mode.
-         if (options.IfModified)
-            xml.setRequestHeader("If-Modified-Since",
-               Er.Ajax._lastModified[url] || "Thu, 01 Jan 1970 00:00:00 GMT" );
+         Er.send(_pid, msg);
+      };
 
-         // Set header so the called script knows that it's an XMLHttpRequest
-         xml.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+      // Set the If-Modified-Since header, if ifModified mode.
+      if (options.IfModified)
+         xml.setRequestHeader("If-Modified-Since",
+            Er.Ajax._lastModified[url] || "Thu, 01 Jan 1970 00:00:00 GMT" );
 
-         // Set user-specified headers
-         for (header in options.Request.Headers)
-            xml.setRequestHeader(header, options.Request.Headers[header]);
+      // Set header so the called script knows that it's an XMLHttpRequest
+      xml.setRequestHeader("X-Requested-With", "XMLHttpRequest");
 
-         // Set the correct header, if data is being sent
-         if (data)
-            xml.setRequestHeader("Content-Type", 
-               options.Request.ContentType || "application/x-www-form-urlencoded");
+      // Set user-specified headers
+      for (header in options.Request.Headers)
+         xml.setRequestHeader(header, options.Request.Headers[header]);
 
-         // XXX: format data
-         xml.send(data);
+      // Set the correct header, if data is being sent
+      if (data) {
+         xml.setRequestHeader("Content-Type", options.Request.ContentType);
+         if (typeof(data) == "object")
+            data = Er.Ajax._param(data); // Stringify
+      }
 
-         yield Er.receive({ Done: true },
-                          function(msg) { },
-                          { Cancel: true },
-                          function(msg) {
-                             if (xml) {
-                                xml.abort();
-                                xml = null;
-                             }
-                             Er.exit(msg);
-                          });
-      }, from, url, data, options || Er.Ajax.DefaultOptions);
+      xml.send(data);
+      return xml;
    }
 };
 
