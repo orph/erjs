@@ -1,5 +1,8 @@
 2007-12-29  Alex Graveley  <alex@beatniksoftware.com>
 
+	* index.html: Move Er.DOM section out of Future Work section,
+	since it kinda already works.
+
 	* test.html: Make the text a little less silly.  Add a document
 	click handler proc that uses Er.DOM.receive.  Add a link killer
 	proc that sleeps and exits abnormally.

@@ -88,8 +88,8 @@ just like the messages themselves, is a simple hash table.</p>
 
 <p>This matches any message in the current process&#8217;s queue which has a
 <code>Hello</code> key with a <code>Date</code> object as the value, and with a
-<code>From</code> key with any value.  Explicit value matching for number and
-string literals and object references is also possible.  The &#8220;_&#8221; for
+<code>From</code> key with any value.  Explicit value matching for e.g. number
+and string literals and DOM elements is also possible.  The &#8220;_&#8221; for
 the <code>From</code> key means that any value is accepted.  There are a few
 other matching rules as well that make this a very powerful but simple message
 dispatching mechanism.</p>
@@ -120,7 +120,7 @@ simple process chaining and failure handling.</p>
 
 <h4>Message Multicast</h4>
 
-<p>Er.js Processes can also register to receive messages sent to a given name string,
+<p>Er.js processes can also register to receive messages sent to a given name,
 using <code>Er.register(name)</code>.  Registered names can be passed as the
 first argument to <code>Er.send</code>.  Multiple processes can register for the
 same name, and they will all receive a message sent to that name, allowing for
@@ -135,8 +135,8 @@ callbacks.</p>
 <p>Instead, using message-passing and concurrency, Er.js makes network access
 transparent, without blocking other processes or interactivity:</p>
 
-<pre><big>result = <strong>yield Er.Ajax.get</strong>("http://beatniksf.com/erjs/index.html");
-alert("Fetched Content: " + result.Text);</big></pre>
+<pre><big>var txt = <strong>yield Er.Ajax.get</strong>("http://beatniksf.com/erjs/index.html");
+alert("Fetched Content: " + txt);</big></pre>
 
 <p>Under the covers, this is accomplished using a concurrently spawned process
 (started via <code>Er.Ajax.spawn</code>), which handles XmlHttpRequest
@@ -149,9 +149,25 @@ from the spawned process is received, and then returning it to the caller:</p>
 
 <pre><big>function myGet(url) {
    var pid = <strong>Er.Ajax.spawn</strong>(<strong>Er.pid</strong>(), url);
-   <strong>yield Er.receive</strong>({ From: pid, Success: _, _:_ },
-                    function(msg) { return msg; });
+   <strong>yield Er.receive</strong>({ From: pid, Success: true, Text: String, _:_ },
+                    function(msg) { return msg.Text; });
 }</big></pre>
+
+<h3>Er.DOM Event Handling</h3>
+
+<p>As with remote resources, Er.js can concurrently listen for DOM Events, and
+once received insert them into the listening process's message queue.  The
+following demonstrates a simple wrapper, <code>Er.DOM.Receive</code>, which
+subscribes to a named event on a DOM element and calls <code>Er.receive</code>
+to await its delivery:</p>
+
+<pre><big>var event = <strong>yield Er.DOM.receive</strong>(document, "click");
+</big></pre>
+
+<p>Note: The best approach to handling DOM manipulation and eventing with Er.js
+is still under investigation.  For instance, <code>document</code> above might
+alternately refer to an an element's id or multiple elements using a CSS
+selector.</p>
 
 <h3>Future Work</h3>
 
@@ -173,20 +189,6 @@ processes:
                  function (msg) {
                     alert("Got Echo response: " + msg.EchoResponse);
                  });</big></pre>
-
-<h4>DOM Events</h4>
-
-<p>Like with remote resources Er.js should concurrently handle DOM Events,
-inserting received events into listening processes message queues.  Consider the
-following, where <code>"button1"</code> could alternately be an element id, DOM
-node, CSS selector, etc:</p>
-
-<pre><big><strong>Er.monitor_event</strong>("button1", "click");
-<strong>yield Er.receive</strong>({ Signal: Er.Event, From: _, Event: "click" },
-                 function (msg) {
-                    alert("Got Click event from: " + msg.From);
-                 });
-</big></pre>
 
 <h4>Native Threading</h4>
 
