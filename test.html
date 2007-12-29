@@ -25,22 +25,19 @@ function ping_me(id) {
 
    if (!id) {
       log(div, "Invalid id '" + id + "'. Quitting.");
-      Er.exit();
+      Er.exit("Invalid id '" + id + "'.");
    }
 
    log(div, "Sending to '" + id + "'.");
    Er.send(id, { Ping: Er.pid() });
-
-   log(div, "Linking to '" + id + "'.");
-   Er.link(id);
    
-   log(div, "Awaiting '" + id + "' exit...");
+   log(div, "Awaiting Pong...");
    yield Er.receive({ Pong: _ },
                     function(msg) {
                        log(div, "Pong from (" + msg.Pong + ").");
                        return;
                     });
-   
+
    log(div, "Quiting!");
 };
 
@@ -55,7 +52,6 @@ var foo = Er.spawn(function() {
 
    Er.spawn(ping_me, "Foo");
    Er.spawn(ping_me, Er.pid());
-   Er.spawn(ping_me, foo); // Fail: foo isn't defined yet
 
    while (true) {
       log(div, "<br>Receiving(" + Er.pid() + ")... ");
@@ -66,8 +62,7 @@ var foo = Er.spawn(function() {
             log(div, "Hello=" + msg.Hello + ". From: " + 
                msg.From + ".");
 
-            Er.link(msg.From);
-            Er.spawn_link(ping_me, Er.pid());
+            Er.spawn(ping_me, Er.pid());
          },
 
          { SmallTalk: _ },
@@ -90,7 +85,7 @@ var foo = Er.spawn(function() {
             log(div, "Ping from (" + msg.Ping + ").");
             Er.send(msg.Ping, { Pong: Er.pid() });
          },
-
+         
          { Signal: Er.Exit, From: _, Reason: _ },
          function(msg) {
             log(div, "Link exit. From=" + msg.From + ".\n" +
@@ -104,6 +99,8 @@ var foo = Er.spawn(function() {
 
 // Send spaced out messages to foo, and exit abnormally
 Er.spawn(function() {
+   yield Er.sleep(1000);
+
    Er.send(foo, { Hello: new Date(), From: Er.pid() });
    yield Er.sleep(2000);
 
@@ -121,8 +118,22 @@ Er.send("Foo", { SmallTalk: "Nice weather today!" });
 Er.send(foo, { Goodbye: true, Digits: "(415) 555-5555" });
 
 
-// Sleep forever
+// Listen for clicks anywhere on the page
 Er.spawn(function() {
+   var div = document.createElement("div");
+   document.body.appendChild(div);
+   
+   log(div, "ClickMe(" + Er.pid() + "): Click anywhere on the page to test.");
+
+   while(true) {
+      ev = yield Er.DOM.receive(document, "click");
+      alert("Click handler got event: " + ev);
+   }
+});
+
+
+// Sleep forever
+var sleeper = Er.spawn(function() {
    var div = document.createElement("div");
    document.body.appendChild(div);
 
@@ -135,6 +146,15 @@ Er.spawn(function() {
 });
 
 
+// Linked process killer
+var killer = Er.spawn(function () {
+   Er.link(sleeper);
+   Er.link(foo);
+   yield Er.sleep(8000);
+   Er.exit("Bonsai!");
+});
+
+
 // Fetch index.html using synchronous Er.Ajax.
 Er.spawn(function() {
    var div = document.createElement("div");
@@ -143,8 +163,7 @@ Er.spawn(function() {
 
    var result = yield Er.Ajax.get("index.html");
 
-   log(div, "Done. Success: " + result.Success + ".");
-   log(div, "Loading iframe...</br>");
+   log(div, "Done.  Loading iframe...</br>");
 
    var iframe = document.createElement("iframe");
    iframe.width = 500;
@@ -152,7 +171,7 @@ Er.spawn(function() {
 
    var idoc = iframe.contentWindow.document;
    idoc.open();
-   idoc.write(result.Text);
+   idoc.write(result);
    idoc.close();
 });
 

@@ -1,3 +1,14 @@
+2007-12-29  Alex Graveley  <alex@beatniksoftware.com>
+
+	* test.html: Make the text a little less silly.  Add a document
+	click handler proc that uses Er.DOM.receive.  Add a link killer
+	proc that sleeps and exits abnormally.
+
+	* er.js: Documentation cleanups.  Split non-current process exit
+	into ErProc._linkexit.  Make Er.Ajax.post just return the URL
+	content directly instead of the message, and throw the message as
+	an exception on failed download.
+
 2007-12-28  Alex Graveley  <alex@beatniksoftware.com>
 
 	* er.js: Add Er.DOM.receive, a synchronous DOMEvent listener.  In

@@ -12,7 +12,7 @@
  */
 
 
-// Use this in message matching patterns passed to Er.register in
+// Use this in message matching patterns passed to Er.receive in
 // order to match any value for a message key.  '_' can also be used
 // as the key name to match any key.
 var _ = 0xDEADBEEF;
@@ -23,17 +23,16 @@ var Er = {
     * Public API...
     */
 
-   // Linked processes send this Signal value to their links 
-   // when exiting.  The message is of the form: 
-   //   { Signal: Er.Exit, From: <exiting pid>, Reason: <reason> }
+   // Linked processes send this Signal value to their links when
+   // exiting to trigger exit chaining.  The full message is:
+   //    { Signal: Er.Exit, From: <exiting pid>, Reason:
    Exit: { toString: function() { return "[object Er.Exit]" } },
 
    // Regular process exit uses this as the Reason value.
    Normal: { toString: function() { return "[object Er.Normal]" } },
 
    // Start a function in a new process, optionally passing
-   // arguments.  The function can be a generator.  If no arguments
-   // are specified, [] is passed.  Usage:
+   // arguments.  The function can be a generator.  Usage:
    //   pid = Er.spawn(function () { ... } [, args...])
    spawn: function(fun) {
       var args = Array.prototype.slice.call(arguments, 1);
@@ -67,9 +66,9 @@ var Er = {
               if (Er._names[pid].indexOf(name) > -1)];
    },
 
-   // Send a message, in the form of an associative array to the / given pid or
-   // registered name.  The msg argument is copied for each destination process,
-   // and original always returned. Usage:
+   // Send a message, in the form of an associative array to pid or
+   // registered name.  The msg argument is copied for each
+   // destination process, and the original always returned. Usage:
    //    msg = Er.send(<pid|name>, { Key: Value, ... });
    send: function(id, msg) {
       Er._pidof(id).forEach(function(pid) {
@@ -78,25 +77,24 @@ var Er = {
       return msg;
    },
 
-   // Link the current process to id's exit signal, where id is a pid
-   // or registered name.
+   // Link the current process to pid's exit signal, and vice versa.
    link: function(pid) {
       Er._links[pid][Er._current._pid] = true;
       Er._links[Er._current._pid][pid] = true;
    },
 
-   // Unlink the current process from id's exit signal.
+   // Unlink the current process from pid's exit signal, and vice versa.
    unlink: function(pid) {
       delete Er._links[pid][Er._current._pid];
       delete Er._links[Er._current._pid][pid];
    },
 
    /* Exit the current process or another pid, with optional exit
-    * Reason passed to linked processes.  If no reason is specified,
+    * reason passed to linked processes.  If no reason is specified,
     * Er.Normal exit is assumed, and no messages sent.  Usage:
     *    Er.exit();             // Exit current with Er.Normal
-    *    Er.exit(aReason);      // Exit current with aReason
-    *    Er.exit(pid, aReason); // Exit pid with aReason
+    *    Er.exit(reason);       // Exit current with aReason
+    *    Er.exit(pid, reason);  // Exit pid with aReason
     */
    exit: function() {
       switch(arguments.length) {
@@ -117,10 +115,11 @@ var Er = {
    },
 
    /* NOTE: Requires yield.  Receive a single message sent to this
-    * pid, by matching a list of patterns against an incoming
-    * message.  Patterns are followed by a handler function, listed
-    * after patterns.  The final return value is the return value of
-    * the invoked handler.  Usage:
+    * pid, by matching a list of patterns against incoming messages
+    * in order of arrival.  Unmatched messages are left in the
+    * queue. Patterns are followed by a handler function, invoked
+    * with the matching message.  The return value of the handler is
+    * returned to the caller.  Usage:
     *   val = yield Er.receive(
     *         // List of patterns to match
     *      { MyKey: 123 },      // Explicit matches...
@@ -130,7 +129,7 @@ var Er = {
     *      { MyKey: { ... } },  // Nested matching
     *      { MyKey: _ },        // Any value
     *         // Handler function follows patterns
-    *      function(msg) { alert(msg.MyKey); },
+    *      function(msg) { return msg.MyKey; },
     *         // More patterns/handlers
     *      { A: ..., B: ... },  // Multiple keys
     *      { _: ... },          // Any keyname
@@ -226,7 +225,8 @@ var Er = {
    },
 
    // Recursively duplicate an object.  Each sent message is copied
-   // before forwarding to the destination.
+   // before forwarding to the destination.  DOM Documents, Elements,
+   // and Events are referenced directly.
    _copy: function(obj) {
       if (typeof(obj) != "object" || !obj || 
           obj instanceof Document ||
@@ -297,22 +297,26 @@ ErProc.prototype = {
       Er._removeproc(this._pid, retval);
    },
 
-   // Throw the reason in the current execution stack, to be finally caught by
-   // _threadmain, or kill the stack if this process isn't currently running.
+   // Throw the reason as an exception, to be caught up the stack or
+   // finally by _threadmain to exit.
    _exit: function(reason) {
-      if (Er._current == this) {
-         throw reason;
-      } else {
-         while (this._stack.length) {
-            this._stack.pop().close();
-         }
-         Er._removeproc(this._pid, reason);
-      }
+      throw reason;
    },
 
-   // See Er.receive description for what this is supposed to do.  Hashtable
-   // match requires matching all submembers, unless a '_' key is specified.
-   // Arrays match any one submember matching.
+   // A link has exited.  Destroy our suspended stack and kill the
+   // process.  Any future calls to _resume will see zero-length
+   // stack and do nothing.
+   _linkexit: function(reason) {
+      while (this._stack.length) {
+         this._stack.pop().close();
+      }
+      Er._removeproc(this._pid, reason);
+   },
+
+   // See Er.receive description for what this is supposed to do.
+   // Hashtable match requires matching all subelements, unless a '_'
+   // key is specified.  Arrays match successfully if at least one
+   // subelement matchs.
    _match: function(pattern, value) {
       if (pattern == _ ||
           pattern == value ||
@@ -349,31 +353,27 @@ ErProc.prototype = {
    _receive: function(args) {
       var patterns = [];
 
-      try {
-         for (var i = 0; i < args.length; i++) {
-            var patlist = [];
-            var handler = null;
+      for (var i = 0; i < args.length; i++) {
+         var patlist = [];
+         var handler = null;
 
-            for (; i < args.length; i++) {
-               if (typeof(args[i]) == "function") {
-                  handler = args[i];
-                  break;
-               } else {
-                  patlist.push(args[i]);
-               }
-            }
-
-            if (patlist.length == 0)
-               throw("Er.receive: found no patterns");
-            if (handler == null)
-               throw("Er.receive: no handler for patterns");
-
-            for (var j = 0; j < patlist.length; j++) {
-               patterns.push([patlist[j], handler]);
+         for (; i < args.length; i++) {
+            if (typeof(args[i]) == "function") {
+               handler = args[i];
+               break;
+            } else {
+               patlist.push(args[i]);
             }
          }
-      } catch (e) {
-         throw("Er.receive: unexpected error in arguments: " + e);
+
+         if (patlist.length == 0)
+            throw("Er.receive: found no patterns");
+         if (handler == null)
+            throw("Er.receive: no handler for patterns");
+
+         for (var j = 0; j < patlist.length; j++) {
+            patterns.push([patlist[j], handler]);
+         }
       }
 
       if (!patterns.length)
@@ -407,7 +407,7 @@ ErProc.prototype = {
 
    _send: function(msg) {
       if (msg.Signal == Er.Exit && msg.Reason != Er.Normal) {
-         this._exit(msg.Reason);
+         this._linkexit(msg.Reason);
       } else {
          this._queue.push(msg);
       }
@@ -418,11 +418,11 @@ ErProc.prototype = {
       yield this._SUSPEND;
    },
 
-   /* special yield value which tells a Thread to suspend execution */
+   // Special yield value which tells a Thread to suspend execution.
    _SUSPEND: { toString: function() { return "[object ErProc._SUSPEND]" } },
 
-   /* special yield value which tells a Thread to send a continuation callback
-    * for resuming a thread */
+   // Special yield value which tells a Thread to send a continuation
+   // callback for resuming a thread.
    _CONTINUATION: { toString: function() { return "[object ErProc._CONTINUATION]" } },
 
    // Execute this ErProc using trampolining... this is copied
@@ -522,16 +522,18 @@ Er.AjaxOptions.prototype = {
 Er.Ajax = {
    DefaultOptions: new Er.AjaxOptions(),
 
-   _lastModified: {}, // url: date-string
+   _lastModified: {}, // { url: last-modified }
 
    // NOTE: Requires yield.  Er.Ajax.spawn wrapper to POST to a URL
    // (pseudo-)synchronously.  Waits until receiving a message from
-   // the spawn'd process with the Success field set, and returns
-   // that message.
+   // the spawn'd process with the Success field set.  If true,
+   // returns the response Text, otherwise throws the failed message.
    post: function(url, data, options) {
       var pid = Er.Ajax.spawn(Er.pid(), url, data, options);
-      return Er.receive({ From: pid, Success: _, _:_ },
-                        function(msg) { return msg; });
+      return Er.receive({ From: pid, Success: true, _:_ },
+                        function(msg) { return msg.Text; },
+                        { From: pid, Success: false, _:_ },
+                        function(msg) { throw msg; });
    },
 
    // NOTE: Requires yield.  Like Er.Ajax.post, but GET content.
