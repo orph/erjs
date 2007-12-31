@@ -1,3 +1,7 @@
+2007-12-30  Alex Graveley  <alex@beatniksoftware.com>
+
+	* er.js: Make sleep's argument optional, defaulting to 0.
+
 2007-12-29  Alex Graveley  <alex@beatniksoftware.com>
 
 	* er.js: In Er.DOM, split out event subscription and onetime event

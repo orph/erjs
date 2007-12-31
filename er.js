@@ -144,7 +144,7 @@ var Er = {
    // continuing the process.  Usage:
    //   yield Er.sleep(1000); // 1 second
    sleep: function(millis) {
-      return Er._current._sleep(millis);
+      return Er._current._sleep(millis || 0);
    },
 
    /*
