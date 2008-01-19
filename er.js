@@ -513,7 +513,7 @@ Er.AjaxOptions.prototype = {
    },
    Timeout: 0,
    UseCache: false,
-   IfModified: true,     // Set La
+   IfModified: true,     // Set If-Modified-Since header
    NotifyHeaders: false,
    NotifyPartial: false
 };
@@ -532,8 +532,14 @@ Er.Ajax = {
       return Er.Ajax._send(url, data, options);
    },
 
-   // NOTE: Requires yield.  Like Er.Ajax.post, but GET content.
-   get: function(url, options) {
+   // NOTE: Requires yield.  Like Er.Ajax.post, but GET content, converting
+   // urldata into url query parameters.
+   get: function(url, urldata, options) {
+      if (urldata) {
+         if (typeof(urldata) == "object")
+            urldata = Er.Ajax._param(urldata);
+         url += (url.match(/\?/) ? "&" : "?") + urldata;
+      }
       return Er.Ajax._send(url, null, options);
    },
 
@@ -556,6 +562,18 @@ Er.Ajax = {
                         function(msg) { return msg.Text; },
                         { Url: url, Success: false, _:_ },
                         function(msg) { throw msg; });
+   },
+
+   _merge: function(dest, src) {
+      if (!dest.prototype)
+         dest.prototype = src.prototype;
+      for (i in src) {
+         if (!dest.hasOwnProperty(i))  {
+            dest[i] = src[i];
+         } else {
+            Er.Ajax._merge(dest[i], src[i])
+         }
+      }
    },
 
    // Serialize an array of form elements or a set of key/values into
@@ -607,7 +625,9 @@ Er.Ajax = {
    start: function(url, data, options) {
       var xml = new XMLHttpRequest();
 
-      if (!options)
+      if (options)
+         Er.Ajax._merge(options, Er.Ajax.DefaultOptions);
+      else
          options = Er.Ajax.DefaultOptions;
 
       // Open the socket (async)

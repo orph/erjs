@@ -138,19 +138,23 @@ transparent, without blocking other processes or interactivity:</p>
 <pre><big>var txt = <strong>yield Er.Ajax.get</strong>("http://beatniksf.com/erjs/index.html");
 alert("Fetched Content: " + txt);</big></pre>
 
-<p>Under the covers, this is accomplished using a concurrently spawned process
-(started via <code>Er.Ajax.spawn</code>), which handles XmlHttpRequest
-internals.  The spawned process uses <code>Er.send</code> to tell our
-process about download progress and completion.</p>
+<p>Under the covers, this is accomplished using <code>Er.Ajax.start</code>,
+which handles asynchronous XmlHttpRequest internals and uses
+<code>Er.send</code> to tell the current process about download progress and
+completion.</p>
 
 <p><code>Er.Ajax.get</code> and others (<code>post</code>, <code>json</code>,
-etc) are implemented by yielding execution until the final message
-from the spawned process is received, and then returning it to the caller:</p>
+etc) are implemented by yielding execution until the final message from
+<code>Er.Ajax.start</code> is received.  If the message indicates success, the
+response text is returned to the caller, otherwise the failure message is
+thrown:</p>
 
 <pre><big>function myGet(url) {
-   var pid = <strong>Er.Ajax.spawn</strong>(<strong>Er.pid</strong>(), url);
-   <strong>yield Er.receive</strong>({ From: pid, Success: true, Text: String, _:_ },
-                    function(msg) { return msg.Text; });
+   <strong>Er.Ajax.start</strong>(url);
+   <strong>yield Er.receive</strong>({ Url: url, Success: true, Text: String, _:_ },
+                    function(msg) { <strong>return msg.Text;</strong> },
+                    { Url: url, Success: false, Text: String, _:_ },
+                    function(msg) { <strong>throw msg;</strong> });
 }</big></pre>
 
 <h3>Er.DOM Event Handling</h3>

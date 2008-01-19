@@ -1,3 +1,9 @@
+2008-01-19  Alex Graveley  <alex@beatniksoftware.com>
+
+	* er.js: Merge options passed to Ajax API with those of
+	Er.Ajax.DefaultOptions.  In Er.Ajax.get, convert urldata to query
+	parameters.
+
 2007-12-30  Alex Graveley  <alex@beatniksoftware.com>
 
 	* er.js: Make sleep's argument optional, defaulting to 0.
