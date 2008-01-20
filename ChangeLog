@@ -1,3 +1,9 @@
+2008-01-20  Alex Graveley  <alex@beatniksoftware.com>
+
+	* er.js: Add Er.wrap, which returns a function wrapper which can
+	be used to turn an async callback-taking method to a synchronous
+	one.
+	
 2008-01-19  Alex Graveley  <alex@beatniksoftware.com>
 
 	* er.js: Merge options passed to Ajax API with those of

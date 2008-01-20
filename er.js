@@ -147,6 +147,28 @@ var Er = {
       return Er._current._sleep(millis || 0);
    },
 
+   // Returns a new function wrapper around fun, which when invoked
+   // converts '_' arguments to a continuation for the calling
+   // process before invoking fun.  Use this to convert asynchronous
+   // JS methods with a completion callback to act like a sync call.
+   // Usage:
+   //    elem.show = Er.wrap(elem.show); // show takes a duration & done callback
+   //    yield elem.show(1200, _);
+   wrap: function(fun, obj) {
+      return function() {
+         for (var idx = 0; idx < arguments.length; idx++)
+            if (arguments[idx] == _)
+               arguments[idx] = Er._current._resume;
+
+         if (typeof(fun) == "string")
+            fun = (obj || this)[fun];
+
+         var ret = fun.apply(obj || this, arguments);
+         yield this._SUSPEND;
+         yield ret;
+      }
+   },
+
    /*
     * Private ErProc, links, and registered name helpers...
     */
@@ -421,7 +443,7 @@ ErProc.prototype = {
    // Special yield value which tells a Thread to suspend execution.
    _SUSPEND: { toString: function() { return "[object ErProc._SUSPEND]" } },
 
-   // Special yield value which tells a Thread to send a continuation
+   // Special yield value which tells a ErProc to send a continuation
    // callback for resuming a thread.
    _CONTINUATION: { toString: function() { return "[object ErProc._CONTINUATION]" } },
 
