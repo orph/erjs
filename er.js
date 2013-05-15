@@ -62,8 +62,12 @@ var Er = {
 
    // Return a list of pids registered to a name.
    registered: function(name) {
-      return [Number(pid) for (pid in Er._names)
-              if (Er._names[pid].indexOf(name) > -1)];
+      var pids = [];
+      for (var pid in Er._names) {
+         if (Er._names[pid].indexOf(name) > -1)
+            pids.push(Number(pid));
+      }
+      return pids;
    },
 
    // Send a message, in the form of an associative array to pid or
@@ -156,17 +160,18 @@ var Er = {
    //    yield elem.show(1200, _);
    wrap: function(fun, obj) {
       return function() {
-         for (var idx = 0; idx < arguments.length; idx++)
-            if (arguments[idx] == _)
-               arguments[idx] = Er._current._resume;
+         var args = Array.prototype.slice.call(arguments, 0);
+         for (var idx = 0; idx < args.length; idx++)
+            if (args[idx] == _)
+               args[idx] = Er._current._resume;
 
          if (typeof(fun) == "string")
             fun = (obj || this)[fun];
 
-         var ret = fun.apply(obj || this, arguments);
+         var ret = fun.apply(obj || this, args);
          yield this._SUSPEND;
          yield ret;
-      }
+      };
    },
 
    /*
@@ -213,7 +218,7 @@ var Er = {
       delete Er._pids[pid];
       delete Er._names[pid];
 
-      for (linkpid in Er._links[pid]) {
+      for (var linkpid in Er._links[pid]) {
          linkpid = Number(linkpid);
 
          // Clear in case linkpid survives
@@ -239,7 +244,7 @@ var Er = {
          return [id._pid];
       } else {
          var pids = Er.registered(id);
-         if (pids.length == 0)
+         if (pids.length === 0)
             throw("Er: Process name not registered: " + 
                   id + " (" + typeof(id) + ")");
          return pids;
@@ -262,14 +267,14 @@ var Er = {
           obj.constructor == Number) {
          ret = new obj.constructor(obj);
       } else if (obj.constructor == Array) {
-         ret = new Array();
+         ret = [];
       } else {
-         ret = new Object();
+         ret = {};
          ret.constructor = obj.constructor;
       }
 
       ret.prototype = obj.prototype;
-      for (i in obj) {
+      for (var i in obj) {
          ret[i] = Er._copy(obj[i]);
       }
 
@@ -349,14 +354,14 @@ ErProc.prototype = {
          return false;
 
       if (pattern instanceof Array) {
-         for (idx in pattern) {
-            for (vidx in value) {
+         for (var idx in pattern) {
+            for (var vidx in value) {
                if (this._match(pattern[idx], value[vidx]))
                   return true;
             }
             return false;
          }
-         return value.length == 0;
+         return value.length === 0;
       } else {
          var match_any = "_" in pattern;
          for (name in pattern) {
@@ -388,9 +393,9 @@ ErProc.prototype = {
             }
          }
 
-         if (patlist.length == 0)
+         if (patlist.length === 0)
             throw("Er.receive: found no patterns");
-         if (handler == null)
+         if (handler === null)
             throw("Er.receive: no handler for patterns");
 
          for (var j = 0; j < patlist.length; j++) {
@@ -471,7 +476,7 @@ ErProc.prototype = {
          } else if (retval == this._SUSPEND) {
             // generator has requested we suspend
             return;
-         } else if (retval != null && 
+         } else if (retval !== null && 
                     typeof(retval) == "object" &&
                     typeof(retval.next) == "function" && 
                     typeof(retval.send) == "function") {
@@ -589,11 +594,11 @@ Er.Ajax = {
    _merge: function(dest, src) {
       if (!dest.prototype)
          dest.prototype = src.prototype;
-      for (i in src) {
+      for (var i in src) {
          if (!dest.hasOwnProperty(i))  {
             dest[i] = src[i];
          } else {
-            Er.Ajax._merge(dest[i], src[i])
+            Er.Ajax._merge(dest[i], src[i]);
          }
       }
    },
@@ -613,7 +618,7 @@ Er.Ajax = {
          });
       } else {
          // Otherwise, assume that it's an object of key/value pairs
-         for (j in obj) {
+         for (var j in obj) {
             // If the value is an array then the key names need to be repeated
             if (obj[j] && obj[j].constructor == Array) {
                obj[j].forEach(function(v){
@@ -670,8 +675,8 @@ Er.Ajax = {
 
          if (options.Response.Headers.length) {
             msg.Headers = {};
-            for (idx in options.Response.Headers)
-               msg.Headers[header] = xml.getResponseHeader(
+            for (var idx in options.Response.Headers)
+               msg.Headers[options.Response.Headers[idx]] = xml.getResponseHeader(
                   options.Response.Headers[idx]);
          }
 
@@ -707,7 +712,7 @@ Er.Ajax = {
       xml.setRequestHeader("X-Requested-With", "XMLHttpRequest");
 
       // Set user-specified headers
-      for (header in options.Request.Headers)
+      for (var header in options.Request.Headers)
          xml.setRequestHeader(header, options.Request.Headers[header]);
 
       // Set the correct header, if data is being sent
