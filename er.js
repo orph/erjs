@@ -159,7 +159,7 @@ var Er = {
    //    elem.show = Er.wrap(elem.show); // show takes a duration & done callback
    //    yield elem.show(1200, _);
    wrap: function(fun, obj) {
-      return function() {
+      return function *() {
          var args = Array.prototype.slice.call(arguments, 0);
          for (var idx = 0; idx < args.length; idx++)
             if (args[idx] == _)
@@ -186,7 +186,7 @@ var Er = {
 
    // Start the main process.  This is pid 0.
    _init: function() {
-      Er._mainproc = Er._current = Er._addproc(function() {
+      Er._mainproc = Er._current = Er._addproc(function *() {
          while (true) {
             // Hang around to receive messages.
             yield Er.sleep(10000);
@@ -308,7 +308,7 @@ ErProc.prototype = {
 
    // Start running fun(args), and yield the result.  Catch 
    // exceptions and use as the exitreason sent to Er._removeproc.
-   _threadmain: function(fun, args) {
+   _threadmain: function *(fun, args) {
       var retval = Er.Normal;
       try {
          // Wait until the document is loaded.
@@ -316,8 +316,6 @@ ErProc.prototype = {
             yield Er.sleep(100);
          }
          yield fun.apply({}, args);
-      } catch(e if e == StopIteration) {
-         // Normal exit
       } catch(e) {
          retval = e;
       }
@@ -335,7 +333,7 @@ ErProc.prototype = {
    // stack and do nothing.
    _linkexit: function(reason) {
       while (this._stack.length) {
-         this._stack.pop().close();
+         this._stack.pop().return();
       }
       Er._removeproc(this._pid, reason);
    },
@@ -377,7 +375,7 @@ ErProc.prototype = {
 
    // Collect patterns/handlers and read messages off the queue until a match is
    // found.  Call the pattern's handler and yield the result.
-   _receive: function(args) {
+   _receive: function *(args) {
       var patterns = [];
 
       for (var i = 0; i < args.length; i++) {
@@ -440,7 +438,7 @@ ErProc.prototype = {
       }
    },
 
-   _sleep: function(millis) {
+   _sleep: function *(millis) {
       setTimeout((yield this._CONTINUATION), millis);
       yield this._SUSPEND;
    },
@@ -456,11 +454,11 @@ ErProc.prototype = {
    // directly from Threads.js.  Changed to always set/unset the
    // Er._current global.
    _run: function(retval, isException) {
+      var arg, method, next;
       while (true) {
-         var method;
-         var arg = undefined;
+         arg = undefined;
          if (isException) {
-            this._stack.pop().close();
+            this._stack.pop().return();
             if (this._stack.length) {
                // propagate the exception down the stack
                method = "throw";
@@ -471,15 +469,14 @@ ErProc.prototype = {
             }
          } else if (retval == this._CONTINUATION) {
             // generator is requesting our resume callback
-            method = "send";
+            method = "next";
             arg    = this._resume;
          } else if (retval == this._SUSPEND) {
             // generator has requested we suspend
             return;
          } else if (retval !== null && 
                     typeof(retval) == "object" &&
-                    typeof(retval.next) == "function" && 
-                    typeof(retval.send) == "function") {
+                    typeof(retval.next) == "function") {
             // it's a generator that was returned.
             // add it as a new frame on the stack.
             this._stack.push(retval);
@@ -487,10 +484,10 @@ ErProc.prototype = {
          } else {
             // regular return value
             // end the current frame
-            this._stack.pop().close();
+            this._stack.pop().return();
             if (this._stack.length) {
                // return to the previous frame
-               method = "send";
+               method = "next";
                arg    = retval;
             } else {
                // we're done.
@@ -503,12 +500,7 @@ ErProc.prototype = {
          var lastproc = Er._current;
          Er._current = this;
          try {
-            retval = this._stack[this._stack.length-1][method](arg);
-            isException = false;
-         } catch(e if e == StopIteration) {
-            // since a normal return results in StopIteration, we'll
-            // just treat this as a return
-            retval = undefined;
+            retval = this._stack[this._stack.length-1][method](arg).value;
             isException = false;
          } catch(e) {
             retval = e;
