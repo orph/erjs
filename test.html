@@ -3,13 +3,13 @@
 <html>
 <head>
 <title>Test erjs.js</title>
-<script src="er.js" type="application/javascript;version=1.7"></script>
+<script src="er.js" type="application/javascript"></script>
 </head>
 <body>
 
 Starting Er.js Concurrency Tests...
 
-<script type="application/javascript;version=1.7">
+<script type="application/javascript">
 
 
 function log(div, txt) { div.innerHTML += " " + txt; };
@@ -17,12 +17,12 @@ function log(div, txt) { div.innerHTML += " " + txt; };
 
 // Send a { Ping: <pid> } to id (pid or registered name)
 // Waits for a { Pong: _ } before quitting.
-function ping_me(id) {
+function *ping_me(id) {
    var div = document.createElement("div");
    document.body.appendChild(div);
    
    log(div, "Ping(" + Er.pid() + "): ");
-
+   
    if (!id) {
       log(div, "Invalid id '" + id + "'. Quitting.");
       Er.exit("Invalid id '" + id + "'.");
@@ -44,7 +44,7 @@ function ping_me(id) {
 
 // Register as "Foo", spawn a bunch of ping_mes, and log incoming
 // messages (forever).
-var foo = Er.spawn(function() {
+var foo = Er.spawn(function *() {
    Er.register("Foo", Er.pid());
 
    var div = document.createElement("div");
@@ -98,7 +98,7 @@ var foo = Er.spawn(function() {
 
 
 // Send spaced out messages to foo, and exit abnormally
-Er.spawn(function() {
+Er.spawn(function *() {
    yield Er.sleep(1000);
 
    Er.send(foo, { Hello: new Date(), From: Er.pid() });
@@ -119,7 +119,7 @@ Er.send(foo, { Goodbye: true, Digits: "(415) 555-5555" });
 
 
 // Listen for clicks anywhere on the page
-Er.spawn(function() {
+Er.spawn(function *() {
    var div = document.createElement("div");
    document.body.appendChild(div);
    
@@ -133,7 +133,7 @@ Er.spawn(function() {
 
 
 // Sleep forever
-var sleeper = Er.spawn(function() {
+var sleeper = Er.spawn(function *() {
    var div = document.createElement("div");
    document.body.appendChild(div);
 
@@ -147,7 +147,7 @@ var sleeper = Er.spawn(function() {
 
 
 // Linked process killer
-var killer = Er.spawn(function () {
+var killer = Er.spawn(function *() {
    Er.link(sleeper);
    Er.link(foo);
    yield Er.sleep(8000);
@@ -156,7 +156,7 @@ var killer = Er.spawn(function () {
 
 
 // Fetch index.html using synchronous Er.Ajax.
-Er.spawn(function() {
+Er.spawn(function *() {
    var div = document.createElement("div");
    document.body.appendChild(div);
    log(div, "Ajax(" + Er.pid() + "): Getting 'index.html'...");
